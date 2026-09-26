@@ -154,7 +154,6 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             _authError.value = "Firebase is not configured. Add google-services.json to enable accounts and cloud messaging."
             return
         }
-        val firestore = db ?: return
         viewModelScope.launch {
             try {
                 val usernameDoc = firestore.collection("usernames").document(cleanUsername).get().await()
@@ -254,7 +253,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         runCatching { FirebaseMessaging.getInstance().token }.getOrNull()?.addOnCompleteListener { task ->
             if (task.isSuccessful) {
                 val token = task.result
-                db?.collection("users").document(uid).update("fcmToken", token)
+                db?.collection("users")?.document(uid)?.update("fcmToken", token)
             }
         }
     }
@@ -269,6 +268,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             _searchedUser.value = null
             return
         }
+        val firestore = db ?: return
         viewModelScope.launch {
             try {
                 val usernameDoc = firestore.collection("usernames").document(query).get().await()
@@ -374,6 +374,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             text = text.trim(),
             timestamp = System.currentTimeMillis()
         )
+        val firestore = db ?: return
         viewModelScope.launch {
             try {
                 firestore.collection("statuses").document(statusId).set(status).await()
