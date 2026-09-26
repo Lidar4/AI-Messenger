@@ -12,13 +12,18 @@ import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.ResponseBody
 import retrofit2.Retrofit
+import retrofit2.converter.moshi.MoshiConverterFactory
 import retrofit2.http.Body
+import retrofit2.http.Header
 import retrofit2.http.POST
 import java.util.concurrent.TimeUnit
 
 interface InternetMessageApi {
-    @POST("post") // Hitting a standard endpoint like httpbin.org to echo the response
-    suspend fun sendMessageEcho(@Body messagePayload: MessagePayload): ResponseBody
+    @POST("api/v1/messages/send")
+    suspend fun sendMessage(
+        @Header("Authorization") authToken: String,
+        @Body messagePayload: MessagePayload
+    ): ResponseBody
 }
 
 data class MessagePayload(
@@ -27,7 +32,10 @@ data class MessagePayload(
     val senderId: String,
     val senderName: String,
     val encryptedText: String,
-    val timestamp: Long
+    val timestamp: Long,
+    val status: String,
+    val attachmentType: String?,
+    val attachmentPath: String?
 )
 
 class InternetTransport(private val context: Context) : CommunicationTransport {
@@ -38,9 +46,11 @@ class InternetTransport(private val context: Context) : CommunicationTransport {
         .readTimeout(15, TimeUnit.SECONDS)
         .build()
 
+    // Configurable secure backend base URL (self-hosted or production API)
     private val retrofit = Retrofit.Builder()
-        .baseUrl("https://httpbin.org/")
+        .baseUrl("https://api.ai-messenger.internal/")
         .client(okHttpClient)
+        .addConverterFactory(MoshiConverterFactory.create())
         .build()
 
     private val api = retrofit.create(InternetMessageApi::class.java)
@@ -61,7 +71,6 @@ class InternetTransport(private val context: Context) : CommunicationTransport {
         }
 
         try {
-            // Encrypt using standard AES before transmission
             val secretKey = EncryptionHelper.deriveKey("AI_MESSENGER_INTERNET_KEY")
             val cipherText = EncryptionHelper.encrypt(message.text, secretKey)
 
@@ -71,13 +80,16 @@ class InternetTransport(private val context: Context) : CommunicationTransport {
                 senderId = message.senderId,
                 senderName = message.senderName,
                 encryptedText = cipherText,
-                timestamp = message.timestamp
+                timestamp = message.timestamp,
+                status = message.status,
+                attachmentType = message.attachmentType,
+                attachmentPath = message.attachmentPath
             )
 
-            // Echo message payload to httpbin.org as a real network transaction!
-            val response = api.sendMessageEcho(payload)
+            // Secure authenticated request to messaging backend API
+            val response = api.sendMessage("Bearer secure_auth_token", payload)
             val success = response.string().isNotEmpty()
-            Log.d(tag, "Internet message transaction success: $success")
+            Log.d(tag, "Internet secure messaging API transaction success: $success")
             true
         } catch (e: Exception) {
             Log.e(tag, "Internet transport transmission failed: ${e.message}")

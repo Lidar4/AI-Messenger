@@ -6,7 +6,6 @@ import kotlinx.coroutines.flow.StateFlow
 
 class AudioCallManager {
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
-    private var durationJob: Job? = null
 
     private val _callState = MutableStateFlow<CallState>(CallState.Idle)
     val callState: StateFlow<CallState> = _callState
@@ -31,35 +30,25 @@ class AudioCallManager {
     fun startOutgoingCall(peerName: String) {
         _callState.value = CallState.Outgoing(peerName)
         _callDurationSeconds.value = 0
-        _isMuted.value = false
-        _isSpeakerOn.value = false
-
-        // Simulate peer answering after 3 seconds
+        // VoIP/WebRTC audio calls are not yet implemented in this release.
         scope.launch {
-            delay(3000)
-            if (_callState.value is CallState.Outgoing) {
-                connectCall(peerName)
-            }
+            delay(1500)
+            _callState.value = CallState.Disconnected("VoIP Calls (WebRTC) not yet implemented")
+            delay(1500)
+            _callState.value = CallState.Idle
         }
     }
 
     fun receiveIncomingCall(peerName: String) {
         _callState.value = CallState.Incoming(peerName)
-        _callDurationSeconds.value = 0
-        _isMuted.value = false
-        _isSpeakerOn.value = false
     }
 
     fun acceptIncomingCall() {
-        val state = _callState.value
-        if (state is CallState.Incoming) {
-            connectCall(state.peerName)
+        _callState.value = CallState.Disconnected("VoIP Calls (WebRTC) not yet implemented")
+        scope.launch {
+            delay(1500)
+            _callState.value = CallState.Idle
         }
-    }
-
-    private fun connectCall(peerName: String) {
-        _callState.value = CallState.Connected(peerName)
-        startDurationCounter()
     }
 
     fun toggleMute() {
@@ -71,21 +60,10 @@ class AudioCallManager {
     }
 
     fun endCall() {
-        durationJob?.cancel()
-        _callState.value = CallState.Disconnected("Call ended by user")
+        _callState.value = CallState.Disconnected("Call ended")
         scope.launch {
-            delay(2000)
+            delay(1000)
             _callState.value = CallState.Idle
-        }
-    }
-
-    private fun startDurationCounter() {
-        durationJob?.cancel()
-        durationJob = scope.launch {
-            while (true) {
-                delay(1000)
-                _callDurationSeconds.value += 1
-            }
         }
     }
 }

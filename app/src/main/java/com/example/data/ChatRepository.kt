@@ -28,6 +28,7 @@ class ChatRepository(
 
     // P2P Manager to run local TCP socket server
     val p2pManager = P2PManager(
+        context = context.applicationContext,
         myUserId = "user_me",
         onMessageReceived = { incomingMessage ->
             scope.launch {

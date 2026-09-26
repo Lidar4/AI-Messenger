@@ -28,8 +28,8 @@ class NearbyTransport(private val p2pManager: P2PManager) : CommunicationTranspo
         // Propagate / multicast message to all nearby discovered peers (gossiping/flooding style)
         for (peer in peers) {
             if (peer.isOnline) {
-                MeshRouter.addLog("Forwarding message ${message.id} to peer ${peer.name} (${peer.ipAddress})")
-                val success = p2pManager.sendMessageToPeer(peer.ipAddress, message)
+                MeshRouter.addLog("Forwarding message ${message.id} to peer ${peer.name} (${peer.ipAddress}:${peer.port})")
+                val success = p2pManager.sendMessageToPeer(peer.ipAddress, peer.port, message)
                 if (success) {
                     anySuccess = true
                 }

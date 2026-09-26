@@ -139,11 +139,6 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     fun initiateCall(peerName: String) {
         callManager.startOutgoingCall(peerName)
         _currentScreen.value = "ACTIVE_CALL"
-        viewModelScope.launch {
-            repository.callLogDao.insertCallLog(
-                CallLog(UUID.randomUUID().toString(), "peer_user", peerName, false, 0, System.currentTimeMillis(), "COMPLETED")
-            )
-        }
     }
 
     fun toggleMeshNetwork(enabled: Boolean) {
@@ -208,17 +203,13 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    // Voice messaging simulation
+    // Voice recording feature pending microphone MediaRecorder implementation
     fun startVoiceRecording() {
-        _isRecordingVoice.value = true
+        _isRecordingVoice.value = false
     }
 
     fun stopAndSendVoiceRecording() {
-        if (!_isRecordingVoice.value) return
         _isRecordingVoice.value = false
-        // Simulate sending a voice message with a mock attachment path
-        val conv = _activeConversation.value ?: return
-        sendMessage("[Voice Message]", attachmentPath = "voice_recording_mock.mp3", attachmentType = "VOICE")
     }
 
     fun deleteMessage(messageId: String) {
