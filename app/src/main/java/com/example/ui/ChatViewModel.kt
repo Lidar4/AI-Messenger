@@ -4,90 +4,457 @@ import android.app.Application
 import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import com.example.ai.AiProvider
-import com.example.ai.OwnAIProvider
 import com.example.data.*
 import com.example.network.AudioCallManager
-import kotlinx.coroutines.Dispatchers
+import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.ListenerRegistration
+import com.google.firebase.firestore.Query
+import com.google.firebase.messaging.FirebaseMessaging
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
+import kotlinx.coroutines.tasks.await
 import java.util.UUID
 
 class ChatViewModel(application: Application) : AndroidViewModel(application) {
     private val tag = "ChatViewModel"
+    private val auth = FirebaseAuth.getInstance()
+    val db = FirebaseFirestore.getInstance()
 
-    // Repository
-    val repository: ChatRepository by lazy {
-        val db = AppDatabase.getDatabase(application)
-        ChatRepository(application, db)
-    }
-
-    // Audio VoIP Call Manager
     val callManager = AudioCallManager()
 
-    // Decoupled AI Provider (Self-hosted / Local runtime)
-    private val aiProvider: AiProvider = OwnAIProvider()
+    private val _currentUser = MutableStateFlow(auth.currentUser)
+    val currentUser: StateFlow<com.google.firebase.auth.FirebaseUser?> = _currentUser
 
-    // Active screen navigation
-    // "MAIN", "CHAT_CONVERSATION", "ACTIVE_CALL"
-    private val _currentScreen = MutableStateFlow("MAIN")
+    private val _userProfile = MutableStateFlow<User?>(null)
+    val userProfile: StateFlow<User?> = _userProfile
+
+    private val _authError = MutableStateFlow<String?>(null)
+    val authError: StateFlow<String?> = _authError
+
+    private val _authSuccessMessage = MutableStateFlow<String?>(null)
+    val authSuccessMessage: StateFlow<String?> = _authSuccessMessage
+
+    private val _isLoading = MutableStateFlow(false)
+    val isLoading: StateFlow<Boolean> = _isLoading
+
+    // Navigation: AUTH, MAIN, CHAT_CONVERSATION, ACTIVE_CALL
+    private val _currentScreen = MutableStateFlow(if (auth.currentUser != null) "MAIN" else "AUTH")
     val currentScreen: StateFlow<String> = _currentScreen
 
-    // Selected navigation tab inside MAIN screen
-    // "HOME", "CHATS", "GROUPS", "CALLS", "AI", "SETTINGS"
+    // Navigation tabs: CHATS, UPDATES, CALLS, SETTINGS
     private val _activeTab = MutableStateFlow("CHATS")
     val activeTab: StateFlow<String> = _activeTab
 
-    // Active conversation being viewed
+    private val _conversations = MutableStateFlow<List<Conversation>>(emptyList())
+    val conversations: StateFlow<List<Conversation>> = _conversations
+
     private val _activeConversation = MutableStateFlow<Conversation?>(null)
     val activeConversation: StateFlow<Conversation?> = _activeConversation
 
-    // Messages in active conversation
-    val activeMessages: StateFlow<List<Message>> = _activeConversation
-        .flatMapLatest { conv ->
-            if (conv != null) {
-                repository.messageDao.getMessagesForConversation(conv.id)
+    private val _activeMessages = MutableStateFlow<List<Message>>(emptyList())
+    val activeMessages: StateFlow<List<Message>> = _activeMessages
+
+    private val _searchedUser = MutableStateFlow<User?>(null)
+    val searchedUser: StateFlow<User?> = _searchedUser
+
+    // Status updates
+    private val _statuses = MutableStateFlow<List<StatusUpdate>>(emptyList())
+    val statuses: StateFlow<List<StatusUpdate>> = _statuses
+
+    // Settings state
+    private val _isDarkMode = MutableStateFlow(true)
+    val isDarkMode: StateFlow<Boolean> = _isDarkMode
+
+    private val _notificationsEnabled = MutableStateFlow(true)
+    val notificationsEnabled: StateFlow<Boolean> = _notificationsEnabled
+
+    private val _readReceiptsEnabled = MutableStateFlow(true)
+    val readReceiptsEnabled: StateFlow<Boolean> = _readReceiptsEnabled
+
+    private val _onlineStatusVisible = MutableStateFlow(true)
+    val onlineStatusVisible: StateFlow<Boolean> = _onlineStatusVisible
+
+    private var convListener: ListenerRegistration? = null
+    private var msgListener: ListenerRegistration? = null
+    private var statusListener: ListenerRegistration? = null
+
+    init {
+        auth.addAuthStateListener { firebaseAuth ->
+            val user = firebaseAuth.currentUser
+            _currentUser.value = user
+            if (user != null) {
+                _currentScreen.value = "MAIN"
+                fetchUserProfile(user.uid)
+                startConversationsListener(user.uid)
+                startStatusListener()
+                updateFcmToken(user.uid)
             } else {
-                flowOf(emptyList())
+                _currentScreen.value = "AUTH"
+                _userProfile.value = null
+                stopListeners()
             }
         }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+        if (auth.currentUser != null) {
+            fetchUserProfile(auth.currentUser!!.uid)
+            startConversationsListener(auth.currentUser!!.uid)
+            startStatusListener()
+        }
+    }
 
-    // All conversations flow
-    val allConversations: StateFlow<List<Conversation>> = repository.conversationDao.getAllConversations()
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    fun login(email: String, pass: String) {
+        if (email.isBlank() || pass.isBlank()) {
+            _authError.value = "Please fill in all fields"
+            return
+        }
+        _isLoading.value = true
+        _authError.value = null
+        viewModelScope.launch {
+            try {
+                auth.signInWithEmailAndPassword(email.trim(), pass).await()
+                _isLoading.value = false
+            } catch (e: Exception) {
+                _isLoading.value = false
+                _authError.value = e.localizedMessage ?: "Login failed"
+            }
+        }
+    }
 
-    // All call logs flow
-    val callLogs: StateFlow<List<CallLog>> = repository.callLogDao.getAllCallLogs()
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    fun register(email: String, pass: String, username: String, displayName: String) {
+        val cleanUsername = username.trim().lowercase().removePrefix("@")
+        if (email.isBlank() || pass.isBlank() || cleanUsername.isBlank() || displayName.isBlank()) {
+            _authError.value = "All fields are required"
+            return
+        }
+        if (cleanUsername.length < 3 || !cleanUsername.matches(Regex("^[a-z0-9_]+$"))) {
+            _authError.value = "Username must be at least 3 chars (letters, numbers, underscores only)"
+            return
+        }
 
-    // AI Workspace sessions flow
-    val aiSessions: StateFlow<List<AIWorkspaceSession>> = repository.aiWorkspaceSessionDao.getAllSessions()
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+        _isLoading.value = true
+        _authError.value = null
+        viewModelScope.launch {
+            try {
+                val usernameDoc = db.collection("usernames").document(cleanUsername).get().await()
+                if (usernameDoc.exists()) {
+                    _isLoading.value = false
+                    _authError.value = "Username @$cleanUsername is already taken"
+                    return@launch
+                }
 
-    // Discovered Mesh peers
-    val discoveredPeers = repository.p2pManager.discoveredPeers
-    val isMeshEnabled = repository.p2pManager.isMeshEnabled
-    val meshConnectionStatus = repository.p2pManager.connectionStatus
+                val authResult = auth.createUserWithEmailAndPassword(email.trim(), pass).await()
+                val uid = authResult.user?.uid ?: throw Exception("User creation failed")
 
-    // Active AI State
-    private val _aiWorkspaceMode = MutableStateFlow("GENERAL") // GENERAL, CODING, DEBUGGING, WRITING, RESEARCH, STUDY, DATA, APP_BUILDING, LANGUAGE
-    val aiWorkspaceMode: StateFlow<String> = _aiWorkspaceMode
+                db.collection("usernames").document(cleanUsername).set(mapOf("uid" to uid)).await()
 
-    private val _aiMessages = MutableStateFlow<List<AIMessage>>(listOf(
-        AIMessage("assistant", "Hello! I am your integrated AI Workspace Assistant. Select a specialized tool mode below to begin.", System.currentTimeMillis())
-    ))
-    val aiMessages: StateFlow<List<AIMessage>> = _aiMessages
+                val newUser = User(
+                    id = uid,
+                    displayName = displayName.trim(),
+                    username = cleanUsername,
+                    isMe = true
+                )
+                db.collection("users").document(uid).set(newUser).await()
+                _userProfile.value = newUser
+                _isLoading.value = false
+                _currentScreen.value = "MAIN"
+                startConversationsListener(uid)
+                startStatusListener()
+            } catch (e: Exception) {
+                _isLoading.value = false
+                _authError.value = e.localizedMessage ?: "Registration failed"
+            }
+        }
+    }
 
-    private val _isAiLoading = MutableStateFlow(false)
-    val isAiLoading: StateFlow<Boolean> = _isAiLoading
+    fun sendPasswordReset(email: String) {
+        if (email.isBlank()) {
+            _authError.value = "Please enter your email address"
+            return
+        }
+        _isLoading.value = true
+        _authError.value = null
+        _authSuccessMessage.value = null
+        viewModelScope.launch {
+            try {
+                auth.sendPasswordResetEmail(email.trim()).await()
+                _isLoading.value = false
+                _authSuccessMessage.value = "Password reset email sent!"
+            } catch (e: Exception) {
+                _isLoading.value = false
+                _authError.value = e.localizedMessage ?: "Failed to send reset email"
+            }
+        }
+    }
 
-    // Voice recording simulation
-    private val _isRecordingVoice = MutableStateFlow(false)
-    val isRecordingVoice: StateFlow<Boolean> = _isRecordingVoice
+    fun logout() {
+        auth.signOut()
+        stopListeners()
+        _currentScreen.value = "AUTH"
+    }
 
-    data class AIMessage(val role: String, val text: String, val timestamp: Long = System.currentTimeMillis())
+    private fun fetchUserProfile(uid: String) {
+        viewModelScope.launch {
+            try {
+                val doc = db.collection("users").document(uid).get().await()
+                if (doc.exists()) {
+                    _userProfile.value = doc.toObject(User::class.java)
+                }
+            } catch (e: Exception) {
+                Log.e(tag, "Error fetching user profile", e)
+            }
+        }
+    }
+
+    fun updateProfile(newDisplayName: String, newBio: String) {
+        val uid = auth.currentUser?.uid ?: return
+        viewModelScope.launch {
+            try {
+                db.collection("users").document(uid)
+                    .update(mapOf("displayName" to newDisplayName, "bio" to newBio)).await()
+                fetchUserProfile(uid)
+            } catch (e: Exception) {
+                Log.e(tag, "Error updating profile", e)
+            }
+        }
+    }
+
+    private fun updateFcmToken(uid: String) {
+        FirebaseMessaging.getInstance().token.addOnCompleteListener { task ->
+            if (task.isSuccessful) {
+                val token = task.result
+                db.collection("users").document(uid).update("fcmToken", token)
+            }
+        }
+    }
+
+    fun searchUserByUsername(usernameQuery: String) {
+        val query = usernameQuery.trim().lowercase().removePrefix("@")
+        if (query.isBlank()) {
+            _searchedUser.value = null
+            return
+        }
+        viewModelScope.launch {
+            try {
+                val usernameDoc = db.collection("usernames").document(query).get().await()
+                if (usernameDoc.exists()) {
+                    val uid = usernameDoc.getString("uid")
+                    if (uid != null && uid != auth.currentUser?.uid) {
+                        val userDoc = db.collection("users").document(uid).get().await()
+                        if (userDoc.exists()) {
+                            _searchedUser.value = userDoc.toObject(User::class.java)
+                        } else {
+                            _searchedUser.value = null
+                        }
+                    } else {
+                        _searchedUser.value = null
+                    }
+                } else {
+                    _searchedUser.value = null
+                }
+            } catch (e: Exception) {
+                Log.e(tag, "Error searching user", e)
+                _searchedUser.value = null
+            }
+        }
+    }
+
+    fun startConversationWith(peer: User, onStarted: (Conversation) -> Unit) {
+        val myUid = auth.currentUser?.uid ?: return
+        val participants = listOf(myUid, peer.id).sorted()
+        val convId = participants.joinToString("_")
+
+        viewModelScope.launch {
+            try {
+                val convRef = db.collection("conversations").document(convId)
+                val doc = convRef.get().await()
+                val conv: Conversation
+                if (!doc.exists()) {
+                    conv = Conversation(
+                        id = convId,
+                        title = peer.displayName,
+                        isGroup = false,
+                        participantsJson = participants.joinToString(","),
+                        lastMessageText = "Started conversation",
+                        lastMessageTime = System.currentTimeMillis(),
+                        unreadCount = 0
+                    )
+                    convRef.set(conv).await()
+                } else {
+                    conv = doc.toObject(Conversation::class.java) ?: Conversation(convId, peer.displayName, false, participants.joinToString(","))
+                }
+                openConversation(conv)
+                onStarted(conv)
+            } catch (e: Exception) {
+                Log.e(tag, "Error starting conversation", e)
+            }
+        }
+    }
+
+    private fun startConversationsListener(uid: String) {
+        convListener?.remove()
+        convListener = db.collection("conversations")
+            .whereArrayContains("participants", uid)
+            .addSnapshotListener { snapshot, e ->
+                if (e != null) {
+                    Log.e(tag, "Listen failed.", e)
+                    return@addSnapshotListener
+                }
+                if (snapshot != null) {
+                    val list = snapshot.documents.mapNotNull { it.toObject(Conversation::class.java) }
+                    _conversations.value = list.sortedByDescending { it.lastMessageTime }
+                }
+            }
+    }
+
+    private fun startStatusListener() {
+        statusListener?.remove()
+        statusListener = db.collection("statuses")
+            .orderBy("timestamp", Query.Direction.DESCENDING)
+            .addSnapshotListener { snapshot, e ->
+                if (e != null) return@addSnapshotListener
+                if (snapshot != null) {
+                    val list = snapshot.documents.mapNotNull { it.toObject(StatusUpdate::class.java) }
+                    _statuses.value = list
+                }
+            }
+    }
+
+    fun postStatus(text: String) {
+        val user = _userProfile.value ?: return
+        if (text.isBlank()) return
+        val statusId = UUID.randomUUID().toString()
+        val status = StatusUpdate(
+            id = statusId,
+            userId = user.id,
+            userName = user.displayName,
+            userAvatar = user.profilePhotoUri,
+            text = text.trim(),
+            timestamp = System.currentTimeMillis()
+        )
+        viewModelScope.launch {
+            try {
+                db.collection("statuses").document(statusId).set(status).await()
+            } catch (e: Exception) {
+                Log.e(tag, "Error posting status", e)
+            }
+        }
+    }
+
+    fun openConversation(conversation: Conversation) {
+        _activeConversation.value = conversation
+        _currentScreen.value = "CHAT_CONVERSATION"
+        startMessagesListener(conversation.id)
+    }
+
+    private fun startMessagesListener(convId: String) {
+        msgListener?.remove()
+        msgListener = db.collection("conversations").document(convId)
+            .collection("messages")
+            .orderBy("timestamp", Query.Direction.ASCENDING)
+            .addSnapshotListener { snapshot, e ->
+                if (e != null) {
+                    Log.e(tag, "Listen messages failed.", e)
+                    return@addSnapshotListener
+                }
+                if (snapshot != null) {
+                    val msgs = snapshot.documents.mapNotNull { it.toObject(Message::class.java) }
+                    val formatted = msgs.map { msg ->
+                        msg.copy(isIncoming = msg.senderId != auth.currentUser?.uid)
+                    }
+                    _activeMessages.value = formatted
+                }
+            }
+    }
+
+    fun closeConversation() {
+        msgListener?.remove()
+        _activeConversation.value = null
+        _currentScreen.value = "MAIN"
+    }
+
+    fun sendMessage(text: String, replyToId: String? = null, replyToText: String? = null, attachmentType: String? = null, attachmentUrl: String? = null) {
+        val conv = _activeConversation.value ?: return
+        val myUid = auth.currentUser?.uid ?: return
+        val myName = _userProfile.value?.displayName ?: "User"
+
+        if (text.isBlank() && attachmentType == null) return
+
+        val messageId = UUID.randomUUID().toString()
+        val timestamp = System.currentTimeMillis()
+        val message = Message(
+            id = messageId,
+            conversationId = conv.id,
+            senderId = myUid,
+            senderName = myName,
+            text = text.trim(),
+            timestamp = timestamp,
+            status = "DELIVERED",
+            replyToId = replyToId,
+            replyToText = replyToText,
+            attachmentType = attachmentType,
+            attachmentUrl = attachmentUrl,
+            isIncoming = false,
+            transportUsed = "INTERNET"
+        )
+
+        viewModelScope.launch {
+            try {
+                db.collection("conversations").document(conv.id)
+                    .collection("messages").document(messageId).set(message).await()
+
+                db.collection("conversations").document(conv.id)
+                    .update(
+                        mapOf(
+                            "lastMessageText" to if (text.isNotBlank()) text.trim() else "Attachment ($attachmentType)",
+                            "lastMessageTime" to timestamp
+                        )
+                    ).await()
+            } catch (e: Exception) {
+                Log.e(tag, "Error sending message", e)
+            }
+        }
+    }
+
+    fun toggleStarMessage(messageId: String, currentStarred: Boolean) {
+        val conv = _activeConversation.value ?: return
+        viewModelScope.launch {
+            try {
+                db.collection("conversations").document(conv.id)
+                    .collection("messages").document(messageId)
+                    .update("starred", !currentStarred).await()
+            } catch (e: Exception) {
+                Log.e(tag, "Error starring message", e)
+            }
+        }
+    }
+
+    fun deleteMessage(messageId: String) {
+        val conv = _activeConversation.value ?: return
+        viewModelScope.launch {
+            try {
+                db.collection("conversations").document(conv.id)
+                    .collection("messages").document(messageId).delete().await()
+            } catch (e: Exception) {
+                Log.e(tag, "Error deleting message", e)
+            }
+        }
+    }
+
+    fun toggleDarkMode(enabled: Boolean) {
+        _isDarkMode.value = enabled
+    }
+
+    fun toggleNotifications(enabled: Boolean) {
+        _notificationsEnabled.value = enabled
+    }
+
+    fun toggleReadReceipts(enabled: Boolean) {
+        _readReceiptsEnabled.value = enabled
+    }
+
+    fun toggleOnlineStatus(enabled: Boolean) {
+        _onlineStatusVisible.value = enabled
+    }
 
     fun navigateToScreen(screen: String) {
         _currentScreen.value = screen
@@ -97,124 +464,22 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         _activeTab.value = tab
     }
 
-    fun openConversation(conversation: Conversation) {
-        _activeConversation.value = conversation
-        _currentScreen.value = "CHAT_CONVERSATION"
-        viewModelScope.launch {
-            repository.clearConversationUnread(conversation.id)
-        }
-    }
-
-    fun closeConversation() {
-        _activeConversation.value = null
-        _currentScreen.value = "MAIN"
-    }
-
-    fun setAIWorkspaceMode(mode: String) {
-        if (_aiWorkspaceMode.value == mode) return
-        _aiWorkspaceMode.value = mode
-        val welcomeMsg = when (mode) {
-            "CODING" -> "Coding mode active. Ask me to write, review, or format code snippets."
-            "DEBUGGING" -> "Debugging mode active. Send your stack traces or bug descriptions to analyze."
-            "WRITING" -> "Writing assistant active. I can help with emails, essays, letters, and polite revisions."
-            "RESEARCH" -> "Research mode active. Ask me to summarize articles or explain complex topics deeply."
-            "STUDY" -> "Study coach active. Let's create quizzes, flashcards, or learn new core concepts."
-            "DATA" -> "Data Sage active. I can format CSV, generate tables, or analyze custom lists."
-            "APP_BUILDING" -> "App Builder active. Ask about layout structures, Compose components, or material design."
-            "LANGUAGE" -> "Language companion active. I can translate, correct grammar, or practice conversations in multiple languages."
-            else -> "Hello! I am your integrated AI Workspace Assistant. Select a specialized tool mode below to begin."
-        }
-        _aiMessages.value = listOf(AIMessage("assistant", welcomeMsg, System.currentTimeMillis()))
-    }
-
-    // Explicitly secure local message sending
-    fun sendMessage(text: String, replyToId: String? = null, replyToText: String? = null, attachmentPath: String? = null, attachmentType: String? = null) {
-        val conv = _activeConversation.value ?: return
-        viewModelScope.launch {
-            repository.sendMessage(conv.id, text, replyToId, replyToText, attachmentPath, attachmentType)
-        }
-    }
-
-    // Trigger explicit call
     fun initiateCall(peerName: String) {
         callManager.startOutgoingCall(peerName)
         _currentScreen.value = "ACTIVE_CALL"
     }
 
-    fun toggleMeshNetwork(enabled: Boolean) {
-        repository.p2pManager.setMeshEnabled(enabled)
+    private fun stopListeners() {
+        convListener?.remove()
+        msgListener?.remove()
+        statusListener?.remove()
+        convListener = null
+        msgListener = null
+        statusListener = null
     }
 
-    // AI Workspace prompt execution
-    fun askAiWorkspace(prompt: String) {
-        if (prompt.trim().isEmpty()) return
-        val currentMsgs = _aiMessages.value.toMutableList()
-        currentMsgs.add(AIMessage("user", prompt, System.currentTimeMillis()))
-        _aiMessages.value = currentMsgs
-        _isAiLoading.value = true
-
-        viewModelScope.launch(Dispatchers.IO) {
-            // Build specialized system instructions based on selected AI Mode
-            val systemPrompt = when (_aiWorkspaceMode.value) {
-                "CODING" -> "You are an expert software engineer. Provide high-quality, formatted code blocks with minimal text."
-                "DEBUGGING" -> "You are an expert debugger. Analyze errors, identify source bugs, and explain fixes step by step."
-                "WRITING" -> "You are a professional copywriter and editor. Help refine drafts into clear, polished writing."
-                "RESEARCH" -> "You are a research expert. Synthesize key concepts, provide clear summaries, and list reference structures."
-                "STUDY" -> "You are an encouraging study tutor. Formulate explanations into accessible concepts, quizzes, or helpful summaries."
-                "DATA" -> "You are a data extraction specialist. Structure responses as clean Markdown tables, JSON models, or lists."
-                "APP_BUILDING" -> "You are a lead Android architect. Provide Jetpack Compose code snippets, and Material 3 layouts following canonical adaptive guides."
-                "LANGUAGE" -> "You are a native linguist. Help practice language, explain grammatical patterns, and translate text naturally."
-                else -> "You are a helpful and secure integrated AI Assistant inside a privacy-focused messenger."
-            }
-
-            val aiResponse = aiProvider.chatCompletion(prompt, systemPrompt)
-            withContext(Dispatchers.Main) {
-                _isAiLoading.value = false
-                val updatedMsgs = _aiMessages.value.toMutableList()
-                updatedMsgs.add(AIMessage("assistant", aiResponse, System.currentTimeMillis()))
-                _aiMessages.value = updatedMsgs
-            }
-        }
-    }
-
-    // Long press action context triggers
-    fun executeMessageAIContextAction(message: Message, actionType: String, onCompleted: (String) -> Unit) {
-        _isAiLoading.value = true
-        viewModelScope.launch(Dispatchers.IO) {
-            val response = when (actionType) {
-                "SUMMARIZE" -> aiProvider.summarizeText(message.text)
-                "TRANSLATE" -> aiProvider.translateText(message.text, "English")
-                else -> {
-                    val systemPrompt = "You are an expert messaging assistant. You must perform the requested action strictly on the user message provided."
-                    val finalPrompt = when (actionType) {
-                        "REWRITE" -> "Politely and professionally rewrite this message so it's ready to send: \"${message.text}\""
-                        "EXPLAIN" -> "Explain the key concept or context of this message thoroughly: \"${message.text}\""
-                        "CONTINUE" -> "Draft a polite and relevant continue response to this message: \"${message.text}\""
-                        "EXTRACT_POINTS" -> "Extract bullet-pointed action items from this message: \"${message.text}\""
-                        else -> "Help me process this message: \"${message.text}\""
-                    }
-                    aiProvider.chatCompletion(finalPrompt, systemPrompt)
-                }
-            }
-            withContext(Dispatchers.Main) {
-                _isAiLoading.value = false
-                onCompleted(response)
-            }
-        }
-    }
-
-    // Voice recording feature pending microphone MediaRecorder implementation
-    fun startVoiceRecording() {
-        _isRecordingVoice.value = false
-    }
-
-    fun stopAndSendVoiceRecording() {
-        _isRecordingVoice.value = false
-    }
-
-    fun deleteMessage(messageId: String) {
-        viewModelScope.launch {
-            repository.messageDao.deleteMessage(messageId)
-        }
+    override fun onCleared() {
+        super.onCleared()
+        stopListeners()
     }
 }

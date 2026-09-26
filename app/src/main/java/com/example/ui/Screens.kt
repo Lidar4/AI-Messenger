@@ -1,7 +1,6 @@
 package com.example.ui
 
 import androidx.activity.compose.BackHandler
-import androidx.compose.animation.*
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -18,20 +17,21 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.ClipboardManager
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.example.data.CallLog
-import java.util.UUID
-import kotlinx.coroutines.launch
 import com.example.data.Conversation
 import com.example.data.Message
+import com.example.data.User
+import com.example.data.StatusUpdate
 import com.example.network.AudioCallManager.CallState
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -42,13 +42,13 @@ fun AppContent(viewModel: ChatViewModel) {
 
     Box(modifier = Modifier.fillMaxSize()) {
         when (currentScreen) {
+            "AUTH" -> AuthScreen(viewModel)
             "MAIN" -> HomeScreen(viewModel)
             "CHAT_CONVERSATION" -> ChatScreen(viewModel)
             "ACTIVE_CALL" -> CallScreen(viewModel)
-            else -> HomeScreen(viewModel)
+            else -> AuthScreen(viewModel)
         }
 
-        // Keep call overlay visible if a call is active but we navigated away
         if (callState !is CallState.Idle && currentScreen != "ACTIVE_CALL") {
             Card(
                 onClick = { viewModel.navigateToScreen("ACTIVE_CALL") },
@@ -68,7 +68,7 @@ fun AppContent(viewModel: ChatViewModel) {
                         Icon(Icons.Filled.Call, contentDescription = "Active Call", tint = MaterialTheme.colorScheme.primary)
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = "Ongoing Audio Call...",
+                            text = "Ongoing Audio/Video Call...",
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onPrimaryContainer
                         )
@@ -79,6 +79,179 @@ fun AppContent(viewModel: ChatViewModel) {
                 }
             }
         }
+    }
+}
+
+@Composable
+fun AuthScreen(viewModel: ChatViewModel) {
+    var isLogin by remember { mutableStateOf(true) }
+    var showForgotPassword by remember { mutableStateOf(false) }
+    var email by remember { mutableStateOf("") }
+    var password by remember { mutableStateOf("") }
+    var username by remember { mutableStateOf("") }
+    var displayName by remember { mutableStateOf("") }
+
+    val authError by viewModel.authError.collectAsStateWithLifecycle()
+    val authSuccess by viewModel.authSuccessMessage.collectAsStateWithLifecycle()
+    val isLoading by viewModel.isLoading.collectAsStateWithLifecycle()
+
+    Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(24.dp)
+                .verticalScroll(rememberScrollState()),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(80.dp)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.primary),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(Icons.Filled.Chat, contentDescription = "Logo", tint = Color.White, modifier = Modifier.size(40.dp))
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            Text(
+                text = "AI Messenger",
+                fontSize = 28.sp,
+                fontWeight = FontWeight.Black,
+                color = MaterialTheme.colorScheme.onBackground
+            )
+            Text(
+                text = "Secure real-time messaging",
+                fontSize = 14.sp,
+                color = Color.Gray
+            )
+
+            Spacer(modifier = Modifier.height(32.dp))
+
+            if (!isLogin) {
+                OutlinedTextField(
+                    value = displayName,
+                    onValueChange = { displayName = it },
+                    label = { Text("Display Name") },
+                    modifier = Modifier.fillMaxWidth().testTag("display_name_input"),
+                    singleLine = true,
+                    shape = RoundedCornerShape(12.dp)
+                )
+                Spacer(modifier = Modifier.height(16.dp))
+
+                OutlinedTextField(
+                    value = username,
+                    onValueChange = { username = it },
+                    label = { Text("Unique Username (e.g. @mf_fardus)") },
+                    modifier = Modifier.fillMaxWidth().testTag("username_input"),
+                    singleLine = true,
+                    shape = RoundedCornerShape(12.dp)
+                )
+                Spacer(modifier = Modifier.height(16.dp))
+            }
+
+            OutlinedTextField(
+                value = email,
+                onValueChange = { email = it },
+                label = { Text("Email Address") },
+                modifier = Modifier.fillMaxWidth().testTag("email_input"),
+                singleLine = true,
+                shape = RoundedCornerShape(12.dp)
+            )
+            Spacer(modifier = Modifier.height(16.dp))
+
+            if (isLogin) {
+                OutlinedTextField(
+                    value = password,
+                    onValueChange = { password = it },
+                    label = { Text("Password") },
+                    visualTransformation = PasswordVisualTransformation(),
+                    modifier = Modifier.fillMaxWidth().testTag("password_input"),
+                    singleLine = true,
+                    shape = RoundedCornerShape(12.dp)
+                )
+            }
+
+            if (authError != null) {
+                Spacer(modifier = Modifier.height(12.dp))
+                Text(text = authError!!, color = Color.Red, fontSize = 14.sp)
+            }
+
+            if (authSuccess != null) {
+                Spacer(modifier = Modifier.height(12.dp))
+                Text(text = authSuccess!!, color = Color.Green, fontSize = 14.sp)
+            }
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            Button(
+                onClick = {
+                    if (isLogin) {
+                        viewModel.login(email, password)
+                    } else {
+                        viewModel.register(email, password, username, displayName)
+                    }
+                },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(50.dp)
+                    .testTag("auth_submit_button"),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                if (isLoading) {
+                    CircularProgressIndicator(color = Color.White, modifier = Modifier.size(24.dp))
+                } else {
+                    Text(text = if (isLogin) "Sign In" else "Create Account", fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            if (isLogin) {
+                TextButton(onClick = { showForgotPassword = true }) {
+                    Text("Forgot Password?")
+                }
+            }
+
+            TextButton(onClick = { isLogin = !isLogin }) {
+                Text(text = if (isLogin) "Don't have an account? Sign Up" else "Already have an account? Sign In")
+            }
+        }
+    }
+
+    if (showForgotPassword) {
+        var resetEmail by remember { mutableStateOf(email) }
+        AlertDialog(
+            onDismissRequest = { showForgotPassword = false },
+            title = { Text("Reset Password") },
+            text = {
+                Column {
+                    Text("Enter your email to receive a password reset link.")
+                    Spacer(modifier = Modifier.height(12.dp))
+                    OutlinedTextField(
+                        value = resetEmail,
+                        onValueChange = { resetEmail = it },
+                        label = { Text("Email") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            },
+            confirmButton = {
+                Button(onClick = {
+                    viewModel.sendPasswordReset(resetEmail)
+                    showForgotPassword = false
+                }) {
+                    Text("Send Link")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showForgotPassword = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
     }
 }
 
@@ -98,16 +271,16 @@ fun HomeScreen(viewModel: ChatViewModel) {
                     label = { Text("Chats") }
                 )
                 NavigationBarItem(
+                    selected = activeTab == "UPDATES",
+                    onClick = { viewModel.setActiveTab("UPDATES") },
+                    icon = { Icon(Icons.Filled.Update, contentDescription = "Updates") },
+                    label = { Text("Updates") }
+                )
+                NavigationBarItem(
                     selected = activeTab == "CALLS",
                     onClick = { viewModel.setActiveTab("CALLS") },
                     icon = { Icon(Icons.Filled.Call, contentDescription = "Calls") },
                     label = { Text("Calls") }
-                )
-                NavigationBarItem(
-                    selected = activeTab == "AI",
-                    onClick = { viewModel.setActiveTab("AI") },
-                    icon = { Icon(Icons.Filled.AutoAwesome, contentDescription = "AI") },
-                    label = { Text("AI Assist") }
                 )
                 NavigationBarItem(
                     selected = activeTab == "SETTINGS",
@@ -125,8 +298,8 @@ fun HomeScreen(viewModel: ChatViewModel) {
         ) {
             when (activeTab) {
                 "CHATS" -> ConversationsTab(viewModel)
+                "UPDATES" -> UpdatesTab(viewModel)
                 "CALLS" -> CallsTab(viewModel)
-                "AI" -> AIScreen(viewModel)
                 "SETTINGS" -> SettingsScreen(viewModel)
             }
         }
@@ -136,17 +309,16 @@ fun HomeScreen(viewModel: ChatViewModel) {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ConversationsTab(viewModel: ChatViewModel) {
-    val conversations by viewModel.allConversations.collectAsStateWithLifecycle()
+    val conversations by viewModel.conversations.collectAsStateWithLifecycle()
     var searchQuery by remember { mutableStateOf("") }
     var showNewChatDialog by remember { mutableStateOf(false) }
-    val scope = rememberCoroutineScope()
 
     Scaffold(
         topBar = {
             TopAppBar(
                 title = { Text("AI Messenger", fontWeight = FontWeight.Black) },
                 actions = {
-                    IconButton(onClick = { showNewChatDialog = true }) {
+                    IconButton(onClick = { showNewChatDialog = true }, modifier = Modifier.testTag("new_chat_button")) {
                         Icon(Icons.Filled.Add, contentDescription = "New Chat")
                     }
                 }
@@ -158,7 +330,6 @@ fun ConversationsTab(viewModel: ChatViewModel) {
                 .fillMaxSize()
                 .padding(padding)
         ) {
-            // Search Bar
             OutlinedTextField(
                 value = searchQuery,
                 onValueChange = { searchQuery = it },
@@ -168,11 +339,7 @@ fun ConversationsTab(viewModel: ChatViewModel) {
                     .fillMaxWidth()
                     .padding(16.dp)
                     .testTag("search_bar"),
-                shape = RoundedCornerShape(24.dp),
-                colors = TextFieldDefaults.colors(
-                    focusedContainerColor = MaterialTheme.colorScheme.surface,
-                    unfocusedContainerColor = MaterialTheme.colorScheme.surface
-                )
+                shape = RoundedCornerShape(24.dp)
             )
 
             val filteredList = conversations.filter {
@@ -192,7 +359,7 @@ fun ConversationsTab(viewModel: ChatViewModel) {
                             tint = Color.LightGray
                         )
                         Spacer(modifier = Modifier.height(16.dp))
-                        Text("No conversations found", color = Color.Gray)
+                        Text("No conversations yet. Tap + to search @username", color = Color.Gray, textAlign = TextAlign.Center)
                     }
                 }
             } else {
@@ -215,20 +382,8 @@ fun ConversationsTab(viewModel: ChatViewModel) {
                                         color = Color.Gray
                                     )
                                     if (conversation.unreadCount > 0) {
-                                        Box(
-                                            modifier = Modifier
-                                                .padding(top = 4.dp)
-                                                .size(20.dp)
-                                                .clip(CircleShape)
-                                                .background(MaterialTheme.colorScheme.primary),
-                                            contentAlignment = Alignment.Center
-                                        ) {
-                                            Text(
-                                                text = conversation.unreadCount.toString(),
-                                                color = Color.White,
-                                                fontSize = 10.sp,
-                                                fontWeight = FontWeight.Bold
-                                            )
+                                        Badge(containerColor = MaterialTheme.colorScheme.primary) {
+                                            Text(conversation.unreadCount.toString(), color = Color.White)
                                         }
                                     }
                                 }
@@ -250,7 +405,6 @@ fun ConversationsTab(viewModel: ChatViewModel) {
                             },
                             modifier = Modifier
                                 .clickable { viewModel.openConversation(conversation) }
-                                .animateItem()
                         )
                         HorizontalDivider()
                     }
@@ -260,38 +414,63 @@ fun ConversationsTab(viewModel: ChatViewModel) {
     }
 
     if (showNewChatDialog) {
-        var newChatName by remember { mutableStateOf("") }
+        var usernameQuery by remember { mutableStateOf("") }
+        val searchedUser by viewModel.searchedUser.collectAsStateWithLifecycle()
+
         AlertDialog(
             onDismissRequest = { showNewChatDialog = false },
             title = { Text("Start New Chat") },
             text = {
-                OutlinedTextField(
-                    value = newChatName,
-                    onValueChange = { newChatName = it },
-                    placeholder = { Text("Enter recipient name...") },
-                    modifier = Modifier.fillMaxWidth().testTag("new_chat_name")
-                )
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        if (newChatName.isNotEmpty()) {
-                            val newConv = Conversation(
-                                id = "conv_${UUID.randomUUID()}",
-                                title = newChatName,
-                                isGroup = false,
-                                participantsJson = "user_me,peer_new"
-                            )
-                            scope.launch {
-                                viewModel.repository.conversationDao.insertConversation(newConv)
+                Column {
+                    OutlinedTextField(
+                        value = usernameQuery,
+                        onValueChange = {
+                            usernameQuery = it
+                            viewModel.searchUserByUsername(it)
+                        },
+                        placeholder = { Text("Enter @username...") },
+                        modifier = Modifier.fillMaxWidth().testTag("username_search_input"),
+                        singleLine = true
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    if (searchedUser != null) {
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    viewModel.startConversationWith(searchedUser!!) {
+                                        showNewChatDialog = false
+                                    }
+                                },
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(12.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(40.dp)
+                                        .clip(CircleShape)
+                                        .background(MaterialTheme.colorScheme.primary),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(searchedUser!!.displayName.take(1), color = Color.White, fontWeight = FontWeight.Bold)
+                                }
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Column {
+                                    Text(searchedUser!!.displayName, fontWeight = FontWeight.Bold)
+                                    Text("@${searchedUser!!.username}", fontSize = 12.sp, color = Color.Gray)
+                                }
                             }
-                            showNewChatDialog = false
                         }
+                    } else if (usernameQuery.isNotBlank()) {
+                        Text("No user found with this username", color = Color.Gray, fontSize = 12.sp)
                     }
-                ) {
-                    Text("Start")
                 }
             },
+            confirmButton = {},
             dismissButton = {
                 TextButton(onClick = { showNewChatDialog = false }) {
                     Text("Cancel")
@@ -303,71 +482,132 @@ fun ConversationsTab(viewModel: ChatViewModel) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun CallsTab(viewModel: ChatViewModel) {
-    val callLogs by viewModel.callLogs.collectAsStateWithLifecycle()
+fun UpdatesTab(viewModel: ChatViewModel) {
+    val statuses by viewModel.statuses.collectAsStateWithLifecycle()
+    var showPostDialog by remember { mutableStateOf(false) }
+    var statusText by remember { mutableStateOf("") }
 
     Scaffold(
         topBar = {
-            TopAppBar(title = { Text("Call Logs", fontWeight = FontWeight.Black) })
+            TopAppBar(title = { Text("Updates & Status", fontWeight = FontWeight.Black) })
+        },
+        floatingActionButton = {
+            FloatingActionButton(onClick = { showPostDialog = true }) {
+                Icon(Icons.Filled.Add, contentDescription = "Post Status")
+            }
         }
     ) { padding ->
-        if (callLogs.isEmpty()) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(padding),
-                contentAlignment = Alignment.Center
-            ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Icon(
-                        Icons.Filled.Call,
-                        contentDescription = "No calls",
-                        modifier = Modifier.size(72.dp),
-                        tint = Color.LightGray
-                    )
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Text("No calls recorded yet", color = Color.Gray)
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding)
+        ) {
+            Text(
+                text = "Recent Updates",
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.padding(16.dp),
+                color = MaterialTheme.colorScheme.primary
+            )
+
+            if (statuses.isEmpty()) {
+                Box(
+                    modifier = Modifier.fillMaxWidth().weight(1f),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text("No status updates from contacts yet", color = Color.Gray)
                 }
-            }
-        } else {
-            LazyColumn(modifier = Modifier.padding(padding)) {
-                items(callLogs) { log ->
-                    ListItem(
-                        headlineContent = { Text(log.userName, fontWeight = FontWeight.Bold) },
-                        supportingContent = {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(
-                                    imageVector = if (log.isIncoming) Icons.Filled.CallReceived else Icons.Filled.CallMade,
-                                    contentDescription = if (log.isIncoming) "Incoming" else "Outgoing",
-                                    tint = if (log.status == "MISSED") Color.Red else Color.Green,
-                                    modifier = Modifier.size(16.dp)
-                                )
-                                Spacer(modifier = Modifier.width(4.dp))
+            } else {
+                LazyColumn {
+                    items(statuses) { status ->
+                        ListItem(
+                            headlineContent = { Text(status.userName, fontWeight = FontWeight.Bold) },
+                            supportingContent = { Text(status.text ?: "") },
+                            trailingContent = {
                                 Text(
-                                    text = "${log.status} • ${log.durationSeconds}s",
+                                    text = android.text.format.DateFormat.format("hh:mm a", status.timestamp).toString(),
+                                    fontSize = 12.sp,
                                     color = Color.Gray
                                 )
+                            },
+                            leadingContent = {
+                                Box(
+                                    modifier = Modifier
+                                        .size(48.dp)
+                                        .clip(CircleShape)
+                                        .border(2.dp, MaterialTheme.colorScheme.primary, CircleShape)
+                                        .background(MaterialTheme.colorScheme.secondaryContainer),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = status.userName.take(1).uppercase(),
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onSecondaryContainer
+                                    )
+                                }
                             }
-                        },
-                        trailingContent = {
-                            IconButton(onClick = { viewModel.initiateCall(log.userName) }) {
-                                Icon(Icons.Filled.Call, contentDescription = "Call Back", tint = MaterialTheme.colorScheme.primary)
-                            }
-                        },
-                        leadingContent = {
-                            Box(
-                                modifier = Modifier
-                                    .size(40.dp)
-                                    .clip(CircleShape)
-                                    .background(Color.LightGray),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(Icons.Filled.Person, contentDescription = "User", tint = Color.White)
-                            }
-                        }
-                    )
-                    HorizontalDivider()
+                        )
+                        HorizontalDivider()
+                    }
                 }
+            }
+        }
+    }
+
+    if (showPostDialog) {
+        AlertDialog(
+            onDismissRequest = { showPostDialog = false },
+            title = { Text("Post Status Update") },
+            text = {
+                OutlinedTextField(
+                    value = statusText,
+                    onValueChange = { statusText = it },
+                    placeholder = { Text("What's on your mind?") },
+                    modifier = Modifier.fillMaxWidth()
+                )
+            },
+            confirmButton = {
+                Button(onClick = {
+                    if (statusText.isNotBlank()) {
+                        viewModel.postStatus(statusText)
+                        statusText = ""
+                        showPostDialog = false
+                    }
+                }) {
+                    Text("Post")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showPostDialog = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun CallsTab(viewModel: ChatViewModel) {
+    Scaffold(
+        topBar = {
+            TopAppBar(title = { Text("Calls", fontWeight = FontWeight.Black) })
+        }
+    ) { padding ->
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding),
+            contentAlignment = Alignment.Center
+        ) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Icon(
+                    Icons.Filled.Call,
+                    contentDescription = "Calls",
+                    modifier = Modifier.size(72.dp),
+                    tint = Color.LightGray
+                )
+                Spacer(modifier = Modifier.height(16.dp))
+                Text("WebRTC audio/video calls ready", color = Color.Gray)
             }
         }
     }
@@ -379,12 +619,13 @@ fun ChatScreen(viewModel: ChatViewModel) {
     val conversation by viewModel.activeConversation.collectAsStateWithLifecycle()
     val messages by viewModel.activeMessages.collectAsStateWithLifecycle()
     var inputText by remember { mutableStateOf("") }
-    val isRecording by viewModel.isRecordingVoice.collectAsStateWithLifecycle()
+    var inConversationSearch by remember { mutableStateOf("") }
+    var showSearch by remember { mutableStateOf(false) }
+    var selectedMessage by remember { mutableStateOf<Message?>(null) }
+    var showMessageMenu by remember { mutableStateOf(false) }
+    var replyMessage by remember { mutableStateOf<Message?>(null) }
 
-    var showAIContextDialog by remember { mutableStateOf(false) }
-    var selectedMessageForAI by remember { mutableStateOf<Message?>(null) }
-    var aiResultText by remember { mutableStateOf("") }
-    val isAiLoading by viewModel.isAiLoading.collectAsStateWithLifecycle()
+    val clipboardManager: ClipboardManager = LocalClipboardManager.current
 
     BackHandler {
         viewModel.closeConversation()
@@ -392,13 +633,29 @@ fun ChatScreen(viewModel: ChatViewModel) {
 
     if (conversation == null) return
 
+    val displayedMessages = if (inConversationSearch.isNotBlank()) {
+        messages.filter { it.text.contains(inConversationSearch, ignoreCase = true) }
+    } else {
+        messages
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
                 title = {
-                    Column {
-                        Text(conversation!!.title, fontWeight = FontWeight.Bold, fontSize = 18.sp)
-                        Text("Online • Secured", fontSize = 12.sp, color = Color.Gray)
+                    if (showSearch) {
+                        OutlinedTextField(
+                            value = inConversationSearch,
+                            onValueChange = { inConversationSearch = it },
+                            placeholder = { Text("Search chat...") },
+                            modifier = Modifier.fillMaxWidth().height(48.dp),
+                            singleLine = true
+                        )
+                    } else {
+                        Column {
+                            Text(conversation!!.title, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                            Text("Online • Encrypted", fontSize = 12.sp, color = Color.Gray)
+                        }
                     }
                 },
                 navigationIcon = {
@@ -407,6 +664,12 @@ fun ChatScreen(viewModel: ChatViewModel) {
                     }
                 },
                 actions = {
+                    IconButton(onClick = {
+                        showSearch = !showSearch
+                        if (!showSearch) inConversationSearch = ""
+                    }) {
+                        Icon(Icons.Filled.Search, contentDescription = "Search in chat")
+                    }
                     IconButton(onClick = { viewModel.initiateCall(conversation!!.title) }) {
                         Icon(Icons.Filled.Call, contentDescription = "Voice Call")
                     }
@@ -419,7 +682,6 @@ fun ChatScreen(viewModel: ChatViewModel) {
                 .fillMaxSize()
                 .padding(padding)
         ) {
-            // Message List
             LazyColumn(
                 modifier = Modifier
                     .weight(1f)
@@ -427,7 +689,7 @@ fun ChatScreen(viewModel: ChatViewModel) {
                     .padding(horizontal = 16.dp),
                 reverseLayout = false
             ) {
-                items(messages) { message ->
+                items(displayedMessages) { message ->
                     val isMe = !message.isIncoming
                     val bubbleColor = if (isMe) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant
                     val textColor = if (isMe) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
@@ -435,7 +697,14 @@ fun ChatScreen(viewModel: ChatViewModel) {
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(vertical = 4.dp),
+                            .padding(vertical = 4.dp)
+                            .combinedClickable(
+                                onClick = {},
+                                onLongClick = {
+                                    selectedMessage = message
+                                    showMessageMenu = true
+                                }
+                            ),
                         contentAlignment = if (isMe) Alignment.CenterEnd else Alignment.CenterStart
                     ) {
                         Card(
@@ -446,32 +715,41 @@ fun ChatScreen(viewModel: ChatViewModel) {
                                 bottomStart = if (isMe) 16.dp else 0.dp,
                                 bottomEnd = if (isMe) 0.dp else 16.dp
                             ),
-                            modifier = Modifier
-                                .widthIn(max = 280.dp)
-                                .combinedClickable(
-                                    onClick = {},
-                                    onLongClick = {
-                                        selectedMessageForAI = message
-                                        showAIContextDialog = true
-                                    }
-                                )
+                            modifier = Modifier.widthIn(max = 280.dp)
                         ) {
                             Column(modifier = Modifier.padding(12.dp)) {
-                                if (message.attachmentType == "VOICE") {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Icon(Icons.Filled.PlayArrow, contentDescription = "Play voice message", tint = textColor)
-                                        Spacer(modifier = Modifier.width(8.dp))
-                                        Text("Voice Message (0:04)", color = textColor, fontWeight = FontWeight.Medium)
+                                if (message.replyToText != null) {
+                                    Surface(
+                                        color = Color.Black.copy(alpha = 0.1f),
+                                        shape = RoundedCornerShape(8.dp),
+                                        modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp)
+                                    ) {
+                                        Text(
+                                            text = message.replyToText,
+                                            fontSize = 12.sp,
+                                            modifier = Modifier.padding(6.dp),
+                                            maxLines = 2,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
                                     }
-                                } else {
-                                    Text(message.text, color = textColor)
                                 }
+
+                                Text(message.text, color = textColor)
                                 Spacer(modifier = Modifier.height(4.dp))
                                 Row(
                                     horizontalArrangement = Arrangement.End,
                                     verticalAlignment = Alignment.CenterVertically,
                                     modifier = Modifier.align(Alignment.End)
                                 ) {
+                                    if (message.isStarred) {
+                                        Icon(
+                                            Icons.Filled.Star,
+                                            contentDescription = "Starred",
+                                            tint = Color.Yellow,
+                                            modifier = Modifier.size(12.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                    }
                                     Text(
                                         text = android.text.format.DateFormat.format("hh:mm a", message.timestamp).toString(),
                                         fontSize = 10.sp,
@@ -480,21 +758,10 @@ fun ChatScreen(viewModel: ChatViewModel) {
                                     if (isMe) {
                                         Spacer(modifier = Modifier.width(4.dp))
                                         Icon(
-                                            imageVector = when (message.status) {
-                                                "SENT" -> Icons.Filled.Check
-                                                "READ" -> Icons.Filled.DoneAll
-                                                else -> Icons.Filled.Schedule
-                                            },
+                                            imageVector = Icons.Filled.DoneAll,
                                             contentDescription = "Status",
                                             tint = textColor.copy(alpha = 0.7f),
                                             modifier = Modifier.size(12.dp)
-                                        )
-                                        Spacer(modifier = Modifier.width(4.dp))
-                                        Text(
-                                            text = message.transportUsed,
-                                            fontSize = 8.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            color = textColor.copy(alpha = 0.7f)
                                         )
                                     }
                                 }
@@ -504,7 +771,27 @@ fun ChatScreen(viewModel: ChatViewModel) {
                 }
             }
 
-            // Input Composer
+            if (replyMessage != null) {
+                Surface(
+                    color = MaterialTheme.colorScheme.surfaceVariant,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier.padding(8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Replying to ${replyMessage!!.senderName}", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                            Text(replyMessage!!.text, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
+                        IconButton(onClick = { replyMessage = null }) {
+                            Icon(Icons.Filled.Close, contentDescription = "Cancel Reply")
+                        }
+                    }
+                }
+            }
+
             Surface(
                 tonalElevation = 8.dp,
                 modifier = Modifier.fillMaxWidth()
@@ -515,32 +802,14 @@ fun ChatScreen(viewModel: ChatViewModel) {
                         .windowInsetsPadding(WindowInsets.navigationBars),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    IconButton(
-                        onClick = {
-                            if (isRecording) {
-                                viewModel.stopAndSendVoiceRecording()
-                            } else {
-                                viewModel.startVoiceRecording()
-                            }
-                        },
-                        modifier = Modifier.testTag("voice_record_button")
-                    ) {
-                        Icon(
-                            imageVector = if (isRecording) Icons.Filled.Stop else Icons.Filled.Mic,
-                            contentDescription = "Record Voice",
-                            tint = if (isRecording) Color.Red else MaterialTheme.colorScheme.primary
-                        )
-                    }
-
                     OutlinedTextField(
-                        value = if (isRecording) "Recording voice message..." else inputText,
-                        onValueChange = { if (!isRecording) inputText = it },
+                        value = inputText,
+                        onValueChange = { inputText = it },
                         placeholder = { Text("Message...") },
                         modifier = Modifier
                             .weight(1f)
                             .testTag("chat_input"),
-                        shape = RoundedCornerShape(24.dp),
-                        readOnly = isRecording
+                        shape = RoundedCornerShape(24.dp)
                     )
 
                     Spacer(modifier = Modifier.width(8.dp))
@@ -548,8 +817,13 @@ fun ChatScreen(viewModel: ChatViewModel) {
                     IconButton(
                         onClick = {
                             if (inputText.trim().isNotEmpty()) {
-                                viewModel.sendMessage(inputText)
+                                viewModel.sendMessage(
+                                    text = inputText,
+                                    replyToId = replyMessage?.id,
+                                    replyToText = replyMessage?.text
+                                )
                                 inputText = ""
+                                replyMessage = null
                             }
                         },
                         modifier = Modifier.testTag("send_button")
@@ -561,232 +835,45 @@ fun ChatScreen(viewModel: ChatViewModel) {
         }
     }
 
-    if (showAIContextDialog && selectedMessageForAI != null) {
+    if (showMessageMenu && selectedMessage != null) {
         AlertDialog(
-            onDismissRequest = {
-                showAIContextDialog = false
-                aiResultText = ""
-            },
-            title = { Text("Ask AI Assistant") },
+            onDismissRequest = { showMessageMenu = false },
+            title = { Text("Message Options") },
             text = {
                 Column {
-                    Text(
-                        text = "Selected text: \"${selectedMessageForAI!!.text}\"",
-                        fontSize = 12.sp,
-                        color = Color.Gray,
-                        maxLines = 3,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                    Spacer(modifier = Modifier.height(16.dp))
-
-                    if (isAiLoading) {
-                        Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                            CircularProgressIndicator()
-                        }
-                    } else if (aiResultText.isNotEmpty()) {
-                        Card(
-                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
-                            modifier = Modifier.fillMaxWidth().heightIn(max = 200.dp).verticalScroll(rememberScrollState())
-                        ) {
-                            Text(aiResultText, modifier = Modifier.padding(12.dp), color = MaterialTheme.colorScheme.onSecondaryContainer)
-                        }
-                    } else {
-                        // Quick Actions
-                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-                            Column {
-                                TextButton(onClick = {
-                                    viewModel.executeMessageAIContextAction(selectedMessageForAI!!, "SUMMARIZE") { aiResultText = it }
-                                }) { Text("Summarize") }
-                                TextButton(onClick = {
-                                    viewModel.executeMessageAIContextAction(selectedMessageForAI!!, "TRANSLATE") { aiResultText = it }
-                                }) { Text("Translate") }
-                            }
-                            Column {
-                                TextButton(onClick = {
-                                    viewModel.executeMessageAIContextAction(selectedMessageForAI!!, "REWRITE") { aiResultText = it }
-                                }) { Text("Rewrite") }
-                                TextButton(onClick = {
-                                    viewModel.executeMessageAIContextAction(selectedMessageForAI!!, "EXPLAIN") { aiResultText = it }
-                                }) { Text("Explain") }
-                            }
-                        }
+                    TextButton(onClick = {
+                        clipboardManager.setText(AnnotatedString(selectedMessage!!.text))
+                        showMessageMenu = false
+                    }) {
+                        Text("Copy Text")
+                    }
+                    TextButton(onClick = {
+                        replyMessage = selectedMessage
+                        showMessageMenu = false
+                    }) {
+                        Text("Reply")
+                    }
+                    TextButton(onClick = {
+                        viewModel.toggleStarMessage(selectedMessage!!.id, selectedMessage!!.isStarred)
+                        showMessageMenu = false
+                    }) {
+                        Text(if (selectedMessage!!.isStarred) "Unstar Message" else "Star Message")
+                    }
+                    TextButton(onClick = {
+                        viewModel.deleteMessage(selectedMessage!!.id)
+                        showMessageMenu = false
+                    }) {
+                        Text("Delete Message", color = Color.Red)
                     }
                 }
             },
-            confirmButton = {
-                if (aiResultText.isNotEmpty()) {
-                    Button(
-                        onClick = {
-                            viewModel.sendMessage(aiResultText, replyToId = selectedMessageForAI!!.id, replyToText = selectedMessageForAI!!.text)
-                            showAIContextDialog = false
-                            aiResultText = ""
-                        }
-                    ) {
-                        Text("Send Reply")
-                    }
-                }
-            },
+            confirmButton = {},
             dismissButton = {
-                TextButton(
-                    onClick = {
-                        showAIContextDialog = false
-                        aiResultText = ""
-                    }
-                ) {
-                    Text("Close")
+                TextButton(onClick = { showMessageMenu = false }) {
+                    Text("Cancel")
                 }
             }
         )
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun AIScreen(viewModel: ChatViewModel) {
-    val aiMessages by viewModel.aiMessages.collectAsStateWithLifecycle()
-    val aiMode by viewModel.aiWorkspaceMode.collectAsStateWithLifecycle()
-    val isAiLoading by viewModel.isAiLoading.collectAsStateWithLifecycle()
-    var aiInputText by remember { mutableStateOf("") }
-
-    val context = LocalContext.current
-
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("AI Assist Workspace", fontWeight = FontWeight.Bold) }
-            )
-        }
-    ) { padding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-        ) {
-            // Mode Selectors
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState())
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                listOf(
-                    "GENERAL" to "General Chat",
-                    "CODING" to "Coding Helper",
-                    "DEBUGGING" to "Debugger",
-                    "WRITING" to "Writer",
-                    "RESEARCH" to "Research",
-                    "STUDY" to "Study Coach",
-                    "DATA" to "Data Sage",
-                    "APP_BUILDING" to "App Builder",
-                    "LANGUAGE" to "Language translation"
-                ).forEach { (modeKey, modeName) ->
-                    FilterChip(
-                        selected = aiMode == modeKey,
-                        onClick = { viewModel.setAIWorkspaceMode(modeKey) },
-                        label = { Text(modeName) }
-                    )
-                }
-            }
-
-            // Chat Viewport
-            LazyColumn(
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp)
-            ) {
-                items(aiMessages) { msg ->
-                    val isAi = msg.role == "assistant"
-                    val bubbleColor = if (isAi) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.primaryContainer
-                    val textColor = if (isAi) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onPrimaryContainer
-
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 4.dp),
-                        contentAlignment = if (isAi) Alignment.CenterStart else Alignment.CenterEnd
-                    ) {
-                        Card(
-                            colors = CardDefaults.cardColors(containerColor = bubbleColor),
-                            shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier.widthIn(max = 300.dp)
-                        ) {
-                            Column(modifier = Modifier.padding(12.dp)) {
-                                Text(
-                                    text = if (isAi) "AI Assist (${aiMode})" else "You",
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 11.sp,
-                                    color = textColor.copy(alpha = 0.8f)
-                                )
-                                Spacer(modifier = Modifier.height(4.dp))
-                                Text(msg.text, color = textColor)
-                            }
-                        }
-                    }
-                }
-
-                if (isAiLoading) {
-                    item {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(16.dp),
-                            horizontalArrangement = Arrangement.Center
-                        ) {
-                            CircularProgressIndicator(modifier = Modifier.size(24.dp))
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text("AI is thinking...", color = Color.Gray)
-                        }
-                    }
-                }
-            }
-
-            // Input Row
-            Surface(
-                tonalElevation = 8.dp,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Row(
-                    modifier = Modifier
-                        .padding(12.dp)
-                        .windowInsetsPadding(WindowInsets.navigationBars),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    OutlinedTextField(
-                        value = aiInputText,
-                        onValueChange = { aiInputText = it },
-                        placeholder = { Text("Ask anything...") },
-                        modifier = Modifier
-                            .weight(1f)
-                            .testTag("ai_input"),
-                        shape = RoundedCornerShape(24.dp),
-                        trailingIcon = {
-                            IconButton(onClick = {
-                                // Simulate Voice Input to AI
-                                aiInputText = "Summarize local mesh architecture"
-                            }) {
-                                Icon(Icons.Filled.Mic, contentDescription = "Voice Input")
-                            }
-                        }
-                    )
-
-                    Spacer(modifier = Modifier.width(8.dp))
-
-                    IconButton(
-                        onClick = {
-                            if (aiInputText.trim().isNotEmpty()) {
-                                viewModel.askAiWorkspace(aiInputText)
-                                aiInputText = ""
-                            }
-                        },
-                        modifier = Modifier.testTag("ask_ai_button")
-                    ) {
-                        Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Submit", tint = MaterialTheme.colorScheme.secondary)
-                    }
-                }
-            }
-        }
     }
 }
 
@@ -818,7 +905,6 @@ fun CallScreen(viewModel: ChatViewModel) {
                 .fillMaxHeight()
                 .padding(vertical = 64.dp)
         ) {
-            // Header Info
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Text(
                     text = when (callState) {
@@ -850,11 +936,10 @@ fun CallScreen(viewModel: ChatViewModel) {
                         fontWeight = FontWeight.Bold
                     )
                 } else {
-                    Text(text = "Securing link...", color = Color.Gray, fontSize = 14.sp)
+                    Text(text = "Establishing WebRTC link...", color = Color.Gray, fontSize = 14.sp)
                 }
             }
 
-            // Big Avatar
             Box(
                 modifier = Modifier
                     .size(160.dp)
@@ -870,77 +955,46 @@ fun CallScreen(viewModel: ChatViewModel) {
                 )
             }
 
-            // Controls
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                if (callState is CallState.Incoming) {
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(32.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(16.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    IconButton(
+                        onClick = { viewModel.callManager.toggleMute() },
+                        modifier = Modifier
+                            .size(56.dp)
+                            .clip(CircleShape)
+                            .background(if (isMuted) Color.White else Color(0xFF1E293B))
                     ) {
-                        // Accept Call
-                        Button(
-                            onClick = { viewModel.callManager.acceptIncomingCall() },
-                            colors = ButtonDefaults.buttonColors(containerColor = Color.Green),
-                            modifier = Modifier.size(64.dp),
-                            shape = CircleShape
-                        ) {
-                            Icon(Icons.Filled.Call, contentDescription = "Accept", tint = Color.White)
-                        }
-
-                        // Decline Call
-                        Button(
-                            onClick = { viewModel.callManager.endCall() },
-                            colors = ButtonDefaults.buttonColors(containerColor = Color.Red),
-                            modifier = Modifier.size(64.dp),
-                            shape = CircleShape
-                        ) {
-                            Icon(Icons.Filled.CallEnd, contentDescription = "Decline", tint = Color.White)
-                        }
+                        Icon(
+                            imageVector = if (isMuted) Icons.Filled.MicOff else Icons.Filled.Mic,
+                            contentDescription = "Mute",
+                            tint = if (isMuted) Color.Black else Color.White
+                        )
                     }
-                } else {
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(16.dp),
-                        verticalAlignment = Alignment.CenterVertically
+
+                    Button(
+                        onClick = { viewModel.callManager.endCall() },
+                        colors = ButtonDefaults.buttonColors(containerColor = Color.Red),
+                        modifier = Modifier.size(72.dp),
+                        shape = CircleShape
                     ) {
-                        // Mute button
-                        IconButton(
-                            onClick = { viewModel.callManager.toggleMute() },
-                            modifier = Modifier
-                                .size(56.dp)
-                                .clip(CircleShape)
-                                .background(if (isMuted) Color.White else Color(0xFF1E293B))
-                        ) {
-                            Icon(
-                                imageVector = if (isMuted) Icons.Filled.MicOff else Icons.Filled.Mic,
-                                contentDescription = "Mute",
-                                tint = if (isMuted) Color.Black else Color.White
-                            )
-                        }
+                        Icon(Icons.Filled.CallEnd, contentDescription = "End Call", tint = Color.White)
+                    }
 
-                        // End Call
-                        Button(
-                            onClick = { viewModel.callManager.endCall() },
-                            colors = ButtonDefaults.buttonColors(containerColor = Color.Red),
-                            modifier = Modifier.size(72.dp),
-                            shape = CircleShape
-                        ) {
-                            Icon(Icons.Filled.CallEnd, contentDescription = "End Call", tint = Color.White)
-                        }
-
-                        // Speaker button
-                        IconButton(
-                            onClick = { viewModel.callManager.toggleSpeaker() },
-                            modifier = Modifier
-                                .size(56.dp)
-                                .clip(CircleShape)
-                                .background(if (isSpeakerOn) Color.White else Color(0xFF1E293B))
-                        ) {
-                            Icon(
-                                imageVector = Icons.Filled.VolumeUp,
-                                contentDescription = "Speaker",
-                                tint = if (isSpeakerOn) Color.Black else Color.White
-                            )
-                        }
+                    IconButton(
+                        onClick = { viewModel.callManager.toggleSpeaker() },
+                        modifier = Modifier
+                            .size(56.dp)
+                            .clip(CircleShape)
+                            .background(if (isSpeakerOn) Color.White else Color(0xFF1E293B))
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.VolumeUp,
+                            contentDescription = "Speaker",
+                            tint = if (isSpeakerOn) Color.Black else Color.White
+                        )
                     }
                 }
             }
@@ -951,13 +1005,19 @@ fun CallScreen(viewModel: ChatViewModel) {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(viewModel: ChatViewModel) {
-    val meshEnabled by viewModel.isMeshEnabled.collectAsStateWithLifecycle()
-    val peers by viewModel.discoveredPeers.collectAsStateWithLifecycle()
-    val connectionStatus by viewModel.meshConnectionStatus.collectAsStateWithLifecycle()
+    val userProfile by viewModel.userProfile.collectAsStateWithLifecycle()
+    val currentUser by viewModel.currentUser.collectAsStateWithLifecycle()
+    val darkMode by viewModel.isDarkMode.collectAsStateWithLifecycle()
+    val notifications by viewModel.notificationsEnabled.collectAsStateWithLifecycle()
+    val readReceipts by viewModel.readReceiptsEnabled.collectAsStateWithLifecycle()
+
+    var showEditProfile by remember { mutableStateOf(false) }
+    var editName by remember { mutableStateOf(userProfile?.displayName ?: "") }
+    var editBio by remember { mutableStateOf(userProfile?.bio ?: "") }
 
     Scaffold(
         topBar = {
-            TopAppBar(title = { Text("AI Settings & Mesh", fontWeight = FontWeight.Black) })
+            TopAppBar(title = { Text("Settings", fontWeight = FontWeight.Black) })
         }
     ) { padding ->
         Column(
@@ -971,7 +1031,7 @@ fun SettingsScreen(viewModel: ChatViewModel) {
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(bottom = 16.dp),
+                    .clickable { showEditProfile = true },
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
             ) {
                 Row(
@@ -985,122 +1045,137 @@ fun SettingsScreen(viewModel: ChatViewModel) {
                             .background(MaterialTheme.colorScheme.primary),
                         contentAlignment = Alignment.Center
                     ) {
-                        Text("ME", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 24.sp)
+                        Text(
+                            text = userProfile?.displayName?.take(1)?.uppercase() ?: "U",
+                            color = Color.White,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 24.sp
+                        )
                     }
                     Spacer(modifier = Modifier.width(16.dp))
-                    Column {
-                        Text("Me (My Account)", fontWeight = FontWeight.Bold, fontSize = 18.sp)
-                        Text("Handle: @me_handle", color = Color.Gray, fontSize = 14.sp)
-                    }
-                }
-            }
-
-            Text("RESILIENT COMMUNICATION MESH", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
-            Spacer(modifier = Modifier.height(8.dp))
-
-            // Mesh settings control
-            Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(bottom = 16.dp)
-            ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text("P2P Nearby Mesh Mode", fontWeight = FontWeight.Bold)
-                            Text("Enables secure local socket fallback when internet fails.", fontSize = 12.sp, color = Color.Gray)
-                        }
-                        Switch(
-                            checked = meshEnabled,
-                            onCheckedChange = { viewModel.toggleMeshNetwork(it) },
-                            modifier = Modifier.testTag("mesh_toggle")
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.height(12.dp))
-                    HorizontalDivider()
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Text("Mesh Link Status:")
+                    Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            text = connectionStatus,
-                            color = if (meshEnabled) Color.Green else Color.Red,
+                            text = userProfile?.displayName ?: "User",
+                            fontSize = 18.sp,
                             fontWeight = FontWeight.Bold
                         )
+                        Text(
+                            text = "@${userProfile?.username ?: "username"}",
+                            fontSize = 14.sp,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        Text(
+                            text = userProfile?.bio ?: "",
+                            fontSize = 12.sp,
+                            color = Color.Gray,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
                     }
+                    Icon(Icons.Filled.Edit, contentDescription = "Edit Profile")
                 }
             }
 
-            if (meshEnabled) {
-                Text("DISCOVERED NEARBY NODES", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
-                Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(24.dp))
 
-                Card(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(bottom = 16.dp)
-                ) {
-                    Column(modifier = Modifier.padding(16.dp)) {
-                        if (peers.isEmpty()) {
-                            Text("Scanning subnet for nearby nodes...", color = Color.Gray, fontSize = 14.sp)
-                        } else {
-                            peers.forEach { peer ->
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(vertical = 8.dp),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Column {
-                                        Text(peer.name, fontWeight = FontWeight.Bold)
-                                        Text("IP: ${peer.ipAddress}", fontSize = 11.sp, color = Color.Gray)
-                                    }
-                                    Box(
-                                        modifier = Modifier
-                                            .size(8.dp)
-                                            .clip(CircleShape)
-                                            .background(if (peer.isOnline) Color.Green else Color.LightGray)
-                                    )
-                                }
-                                HorizontalDivider()
-                            }
-                        }
-                    }
-                }
-            }
-
-            // Legal & Data Safety Section
-            Text("DATA SAFETY & PRIVACY DISCLOSURE", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+            Text("Preferences", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
             Spacer(modifier = Modifier.height(8.dp))
 
-            Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(bottom = 16.dp)
+            ListItem(
+                headlineContent = { Text("Dark Theme") },
+                trailingContent = {
+                    Switch(checked = darkMode, onCheckedChange = { viewModel.toggleDarkMode(it) })
+                },
+                leadingContent = { Icon(Icons.Filled.DarkMode, contentDescription = "Theme") }
+            )
+            HorizontalDivider()
+
+            ListItem(
+                headlineContent = { Text("Notifications") },
+                trailingContent = {
+                    Switch(checked = notifications, onCheckedChange = { viewModel.toggleNotifications(it) })
+                },
+                leadingContent = { Icon(Icons.Filled.Notifications, contentDescription = "Notifications") }
+            )
+            HorizontalDivider()
+
+            ListItem(
+                headlineContent = { Text("Read Receipts") },
+                trailingContent = {
+                    Switch(checked = readReceipts, onCheckedChange = { viewModel.toggleReadReceipts(it) })
+                },
+                leadingContent = { Icon(Icons.Filled.DoneAll, contentDescription = "Privacy") }
+            )
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            Text("Storage & Data", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+            Spacer(modifier = Modifier.height(8.dp))
+
+            ListItem(
+                headlineContent = { Text("Network Usage & Media Cache") },
+                supportingContent = { Text("Firestore Realtime Database & Cloud Storage") },
+                leadingContent = { Icon(Icons.Filled.Storage, contentDescription = "Storage") }
+            )
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            Text("About", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+            Spacer(modifier = Modifier.height(8.dp))
+
+            ListItem(
+                headlineContent = { Text("App Version") },
+                supportingContent = { Text("1.0.0 (Production)") },
+                leadingContent = { Icon(Icons.Filled.Info, contentDescription = "About") }
+            )
+
+            Spacer(modifier = Modifier.height(32.dp))
+
+            Button(
+                onClick = { viewModel.logout() },
+                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
+                modifier = Modifier.fillMaxWidth().height(50.dp),
+                shape = RoundedCornerShape(12.dp)
             ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Text("• Local Persistence", fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                    Text("Your conversations and credentials remain securely encrypted in our local Room database.", fontSize = 12.sp, color = Color.Gray)
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    Text("• Self-Hosted AI Backend", fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                    Text("AI prompts are transmitted securely via HTTPS to your self-hosted AI backend. No commercial API keys or cloud credentials are required.", fontSize = 12.sp, color = Color.Gray)
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    Text("• Secured Edge Cryptography", fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                    Text("Plaintext data never leaves the device. Transmissions are encrypted using standard AES-GCM.", fontSize = 12.sp, color = Color.Gray)
-                }
+                Text("Sign Out", fontWeight = FontWeight.Bold, fontSize = 16.sp)
             }
         }
+    }
+
+    if (showEditProfile) {
+        AlertDialog(
+            onDismissRequest = { showEditProfile = false },
+            title = { Text("Edit Profile") },
+            text = {
+                Column {
+                    OutlinedTextField(
+                        value = editName,
+                        onValueChange = { editName = it },
+                        label = { Text("Display Name") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    OutlinedTextField(
+                        value = editBio,
+                        onValueChange = { editBio = it },
+                        label = { Text("About / Bio") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            },
+            confirmButton = {
+                Button(onClick = {
+                    viewModel.updateProfile(editName, editBio)
+                    showEditProfile = false
+                }) {
+                    Text("Save")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showEditProfile = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
     }
 }

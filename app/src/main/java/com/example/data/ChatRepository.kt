@@ -77,7 +77,7 @@ class ChatRepository(
     }
 
     suspend fun sendMessage(conversationId: String, text: String, replyToId: String? = null, replyToText: String? = null, attachmentPath: String? = null, attachmentType: String? = null): Message {
-        val me = userDao.getMe() ?: User("user_me", "Me", "me_handle", null, true)
+        val me = userDao.getMe() ?: User("user_me", "Me", "me_handle", null, "Hey there!", true)
         val messageId = UUID.randomUUID().toString()
         val message = Message(
             id = messageId,
@@ -140,7 +140,7 @@ class ChatRepository(
 
     private suspend fun ensureLocalUserExists() {
         if (userDao.getMe() == null) {
-            userDao.insertUser(User("user_me", "Me", "me_handle", null, true))
+            userDao.insertUser(User("user_me", "Me", "me_handle", null, "Hey there!", true))
         }
     }
 
