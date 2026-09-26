@@ -1,0 +1,6 @@
+{
+  "name": "AI Messenger",
+  "description": "A modern, secure messenger featuring an integrated AI assistant, offline mesh/P2P capabilities, and encrypted communications.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

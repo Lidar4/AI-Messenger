@@ -1,0 +1,27 @@
+version: '3.8'
+
+services:
+  ai-backend:
+    build: .
+    container_name: ai_messenger_backend
+    ports:
+      - "8000:8000"
+    environment:
+      - MODEL_RUNTIME_URL=http://ollama:11434
+      - MODEL_NAME=llama3
+      - BACKEND_AUTH_TOKEN=secure_messenger_token_123
+    restart: unless-stopped
+    depends_on:
+      - ollama
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama_runtime
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    restart: unless-stopped
+
+volumes:
+  ollama_data:
