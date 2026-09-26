@@ -29,7 +29,6 @@ class ChatRepository(
     // P2P Manager to run local TCP socket server
     val p2pManager = P2PManager(
         context = context.applicationContext,
-        myUserId = "user_me",
         onMessageReceived = { incomingMessage ->
             scope.launch {
                 handleIncomingMessage(incomingMessage)
@@ -42,10 +41,7 @@ class ChatRepository(
     private val nearbyTransport = NearbyTransport(p2pManager)
 
     init {
-        // Automatically populate initial users/conversations if empty
-        scope.launch {
-            prepopulateDataIfNeeded()
-        }
+        scope.launch { ensureLocalUserExists() }
     }
 
     private suspend fun handleIncomingMessage(message: Message) {
@@ -142,12 +138,9 @@ class ChatRepository(
         conversationDao.clearUnreadCount(conversationId)
     }
 
-    private suspend fun prepopulateDataIfNeeded() {
-        val me = userDao.getMe()
-        if (me == null) {
+    private suspend fun ensureLocalUserExists() {
+        if (userDao.getMe() == null) {
             userDao.insertUser(User("user_me", "Me", "me_handle", null, true))
-            userDao.insertUser(User("peer_alice", "Alice", "alice_gcm", null, false))
-            userDao.insertUser(User("peer_bob", "Bob", "bob_mesh", null, false))
 
             // Populate mock conversations
             conversationDao.insertConversation(
