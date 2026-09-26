@@ -8,7 +8,7 @@ import com.example.R
 import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
 
-class FirebaseMessagingService : FirebaseMessagingService() {
+class AppFirebaseMessagingService : FirebaseMessagingService() {
     override fun onNewToken(token: String) {
         // The repository refreshes the token whenever the signed-in account is active.
     }
