@@ -114,9 +114,13 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         }
         _isLoading.value = true
         _authError.value = null
+        val firebaseAuth = auth ?: run {
+            _authError.value = "Firebase is not configured. Add google-services.json to enable accounts and cloud messaging."
+            return
+        }
         viewModelScope.launch {
             try {
-                auth?.signInWithEmailAndPassword(email.trim(), pass).await()
+                firebaseAuth.signInWithEmailAndPassword(email.trim(), pass).await()
                 _isLoading.value = false
             } catch (e: Exception) {
                 _isLoading.value = false
@@ -142,19 +146,27 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
         _isLoading.value = true
         _authError.value = null
+        val firestore = db ?: run {
+            _authError.value = "Firebase is not configured. Add google-services.json to enable accounts and cloud messaging."
+            return
+        }
+        val firebaseAuth = auth ?: run {
+            _authError.value = "Firebase is not configured. Add google-services.json to enable accounts and cloud messaging."
+            return
+        }
         viewModelScope.launch {
             try {
-                val usernameDoc = db?.collection("usernames").document(cleanUsername).get().await()
+                val usernameDoc = firestore.collection("usernames").document(cleanUsername).get().await()
                 if (usernameDoc.exists()) {
                     _isLoading.value = false
                     _authError.value = "Username @$cleanUsername is already taken"
                     return@launch
                 }
 
-                val authResult = auth?.createUserWithEmailAndPassword(email.trim(), pass).await()
+                val authResult = firebaseAuth.createUserWithEmailAndPassword(email.trim(), pass).await()
                 val uid = authResult.user?.uid ?: throw Exception("User creation failed")
 
-                db?.collection("usernames").document(cleanUsername).set(mapOf("uid" to uid)).await()
+                firestore.collection("usernames").document(cleanUsername).set(mapOf("uid" to uid)).await()
 
                 val newUser = User(
                     id = uid,
@@ -162,7 +174,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                     username = cleanUsername,
                     isMe = true
                 )
-                db?.collection("users").document(uid).set(newUser).await()
+                firestore.collection("users").document(uid).set(newUser).await()
                 _userProfile.value = newUser
                 _isLoading.value = false
                 _currentScreen.value = "MAIN"
@@ -187,9 +199,13 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         _isLoading.value = true
         _authError.value = null
         _authSuccessMessage.value = null
+        val firebaseAuth = auth ?: run {
+            _authError.value = "Firebase is not configured. Add google-services.json to enable accounts and cloud messaging."
+            return
+        }
         viewModelScope.launch {
             try {
-                auth?.sendPasswordResetEmail(email.trim()).await()
+                firebaseAuth.sendPasswordResetEmail(email.trim()).await()
                 _isLoading.value = false
                 _authSuccessMessage.value = "Password reset email sent!"
             } catch (e: Exception) {
@@ -256,7 +272,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 if (usernameDoc.exists()) {
                     val uid = usernameDoc.getString("uid")
                     if (uid != null && uid != auth?.currentUser?.uid) {
-                        val userDoc = db?.collection("users").document(uid).get().await()
+                        val userDoc = firestore.collection("users").document(uid).get().await()
                         if (userDoc.exists()) {
                             _searchedUser.value = userDoc.toObject(User::class.java)
                         } else {
@@ -278,12 +294,13 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     fun startConversationWith(peer: User, onStarted: (Conversation) -> Unit) {
         if (!isBackendConfigured) return
         val myUid = auth?.currentUser?.uid ?: return
+        val firestore = db ?: return
         val participants = listOf(myUid, peer.id).sorted()
         val convId = participants.joinToString("_")
 
         viewModelScope.launch {
             try {
-                val convRef = db?.collection("conversations").document(convId)
+                val convRef = firestore.collection("conversations").document(convId)
                 val doc = convRef.get().await()
                 val conv: Conversation
                 if (!doc.exists()) {
@@ -398,6 +415,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         if (!isBackendConfigured) return
         val conv = _activeConversation.value ?: return
         val myUid = auth?.currentUser?.uid ?: return
+        val firestore = db ?: return
         val myName = _userProfile.value?.displayName ?: "User"
 
         if (text.isBlank() && attachmentType == null) return
@@ -422,10 +440,10 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
         viewModelScope.launch {
             try {
-                db?.collection("conversations").document(conv.id)
+                firestore.collection("conversations").document(conv.id)
                     .collection("messages").document(messageId).set(message).await()
 
-                db?.collection("conversations").document(conv.id)
+                firestore.collection("conversations").document(conv.id)
                     .update(
                         mapOf(
                             "lastMessageText" to if (text.isNotBlank()) text.trim() else "Attachment ($attachmentType)",
@@ -441,9 +459,10 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     fun toggleStarMessage(messageId: String, currentStarred: Boolean) {
         if (!isBackendConfigured) return
         val conv = _activeConversation.value ?: return
+        val firestore = db ?: return
         viewModelScope.launch {
             try {
-                db?.collection("conversations").document(conv.id)
+                firestore.collection("conversations").document(conv.id)
                     .collection("messages").document(messageId)
                     .update("starred", !currentStarred).await()
             } catch (e: Exception) {
@@ -455,9 +474,10 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     fun deleteMessage(messageId: String) {
         if (!isBackendConfigured) return
         val conv = _activeConversation.value ?: return
+        val firestore = db ?: return
         viewModelScope.launch {
             try {
-                db?.collection("conversations").document(conv.id)
+                firestore.collection("conversations").document(conv.id)
                     .collection("messages").document(messageId).delete().await()
             } catch (e: Exception) {
                 Log.e(tag, "Error deleting message", e)
