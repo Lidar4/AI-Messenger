@@ -1,0 +1,56 @@
+name: Android Release APK & AAB
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout Repository
+      uses: actions/checkout@v4
+    - name: Verify Signing Secrets
+      run: |
+        if [ -z "${{ secrets.KEYSTORE_BASE64 }}" ] || [ -z "${{ secrets.KEYSTORE_PASSWORD }}" ] || [ -z "${{ secrets.KEY_ALIAS }}" ] || [ -z "${{ secrets.KEY_PASSWORD }}" ]; then
+          echo "CRITICAL ERROR: Required release signing secrets are missing!"
+          echo "Please configure KEYSTORE_BASE64, KEYSTORE_PASSWORD, KEY_ALIAS, and KEY_PASSWORD in GitHub Secrets."
+          exit 1
+        fi
+    - name: Set up JDK 17
+      uses: actions/setup-java@v4
+      with:
+        java-version: '17'
+        distribution: 'temurin'
+        cache: gradle
+    - name: Grant Execute Permission to Gradlew
+      run: chmod +x gradlew
+    - name: Decode Keystore from Base64
+      run: |
+        echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > app/my-upload-key.jks
+    - name: Build Signed Release APK & AAB
+      run: |
+        ./gradlew assembleRelease bundleRelease --no-daemon           -Pandroid.injected.signing.store.file=my-upload-key.jks           -Pandroid.injected.signing.store.password="${{ secrets.KEYSTORE_PASSWORD }}"           -Pandroid.injected.signing.key.alias="${{ secrets.KEY_ALIAS }}"           -Pandroid.injected.signing.key.password="${{ secrets.KEY_PASSWORD }}"
+    - name: Verify Signed Outputs Exists
+      run: |
+        if [ ! -f app/build/outputs/apk/release/app-release-unsigned.apk ] && [ ! -f app/build/outputs/apk/release/app-release.apk ]; then
+          echo "Release APK build failed!"
+          exit 1
+        fi
+        if [ ! -f app/build/outputs/bundle/release/app-release.aab ]; then
+          echo "Release AAB build failed!"
+          exit 1
+        fi
+    - name: Generate SHA-256 Checksums
+      run: |
+        find app/build/outputs/ -type f ( -name "*.apk" -o -name "*.aab" ) -exec sha256sum {} ; > SHA256SUMS.txt
+    - name: Upload Release Artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: android-release-artifacts
+        path: |
+          app/build/outputs/apk/release/*.apk
+          app/build/outputs/bundle/release/*.aab
+          SHA256SUMS.txt
