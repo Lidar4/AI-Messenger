@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.util.Log
+import com.example.BuildConfig
 import com.example.data.Message
 import com.example.domain.CommunicationTransport
 import com.example.security.EncryptionHelper
@@ -23,7 +24,7 @@ interface InternetMessageApi {
     suspend fun sendMessage(
         @Header("Authorization") authToken: String,
         @Body messagePayload: MessagePayload
-    ): ResponseBody
+    ): retrofit2.Response<ResponseBody>
 }
 
 data class MessagePayload(
@@ -47,8 +48,11 @@ class InternetTransport(private val context: Context) : CommunicationTransport {
         .build()
 
     // Configurable secure backend base URL (self-hosted or production API)
+    private val backendBaseUrl = BuildConfig.MESSAGE_BACKEND_URL.trimEnd('/')
+    private val authToken = BuildConfig.MESSAGE_BACKEND_TOKEN
+
     private val retrofit = Retrofit.Builder()
-        .baseUrl("https://api.ai-messenger.internal/")
+        .baseUrl(if (backendBaseUrl.isBlank()) "https://invalid.local/" else "$backendBaseUrl/")
         .client(okHttpClient)
         .addConverterFactory(MoshiConverterFactory.create())
         .build()
@@ -61,7 +65,7 @@ class InternetTransport(private val context: Context) : CommunicationTransport {
         val connectivityManager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager ?: return false
         val network = connectivityManager.activeNetwork ?: return false
         val capabilities = connectivityManager.getNetworkCapabilities(network) ?: return false
-        return capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+        return backendBaseUrl.isNotBlank() && authToken.isNotBlank() && capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
     }
 
     override suspend fun sendMessage(message: Message): Boolean = withContext(Dispatchers.IO) {
@@ -87,9 +91,11 @@ class InternetTransport(private val context: Context) : CommunicationTransport {
             )
 
             // Secure authenticated request to messaging backend API
-            val response = api.sendMessage("Bearer secure_auth_token", payload)
-            val success = response.string().isNotEmpty()
-            Log.d(tag, "Internet secure messaging API transaction success: $success")
+            val response = api.sendMessage("Bearer $authToken", payload)
+            if (!response.isSuccessful) {
+                Log.w(tag, "Messaging backend returned HTTP ${response.code()}")
+                return@withContext false
+            }
             true
         } catch (e: Exception) {
             Log.e(tag, "Internet transport transmission failed: ${e.message}")

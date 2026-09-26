@@ -20,7 +20,6 @@ import java.util.UUID
 
 class P2PManager(
     private val context: Context,
-    private val myUserId: String,
     private val onMessageReceived: (Message) -> Unit
 ) {
     private val tag = "P2PManager"

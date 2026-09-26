@@ -10,22 +10,13 @@ android {
   compileSdk = 36
 
   defaultConfig {
-    applicationId = "com.aistudio.aimessenger.vkyqta"
+    applicationId = "com.aistudio.aimessenger"
     minSdk = 24
     targetSdk = 36
     versionCode = 1
     versionName = "1.0"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-  }
-
-  signingConfigs {
-    create("debugConfig") {
-      storeFile = file("${rootDir}/debug.keystore")
-      storePassword = "android"
-      keyAlias = "androiddebugkey"
-      keyPassword = "android"
-    }
   }
 
   buildTypes {
@@ -36,7 +27,6 @@ android {
     }
     debug {
       isMinifyEnabled = false
-      signingConfig = signingConfigs.getByName("debugConfig")
     }
   }
 
@@ -48,6 +38,14 @@ android {
   buildFeatures {
     compose = true
     buildConfig = true
+  }
+
+  defaultConfig {
+    buildConfigField("String", "AI_BACKEND_URL", "\"${project.findProperty("AI_BACKEND_URL") ?: ""}\"")
+    buildConfigField("String", "AI_BACKEND_TOKEN", "\"${project.findProperty("AI_BACKEND_TOKEN") ?: ""}\"")
+    buildConfigField("String", "MESSAGE_BACKEND_URL", "\"${project.findProperty("MESSAGE_BACKEND_URL") ?: ""}\"")
+    buildConfigField("String", "MESSAGE_BACKEND_TOKEN", "\"${project.findProperty("MESSAGE_BACKEND_TOKEN") ?: ""}\"")
+    buildConfigField("String", "MESSAGE_ENCRYPTION_KEY", "\"${project.findProperty("MESSAGE_ENCRYPTION_KEY") ?: "AI_MESSENGER_INTERNET_KEY_NOT_CONFIGURED"}\"")
   }
 
   testOptions { unitTests { isIncludeAndroidResources = true } }

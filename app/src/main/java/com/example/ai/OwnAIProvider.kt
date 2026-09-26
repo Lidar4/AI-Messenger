@@ -1,6 +1,7 @@
 package com.example.ai
 
 import android.util.Log
+import com.example.BuildConfig
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -15,8 +16,8 @@ import java.util.concurrent.TimeUnit
  * Configurable via build/environment or endpoint URL.
  */
 class OwnAIProvider(
-    private val backendBaseUrl: String = "http://10.0.2.2:8000",
-    private val authToken: String = "secure_messenger_token_123"
+    private val backendBaseUrl: String = BuildConfig.AI_BACKEND_URL.trimEnd('/'),
+    private val authToken: String = BuildConfig.AI_BACKEND_TOKEN
 ) : AiProvider {
     private val tag = "OwnAIProvider"
 
@@ -38,6 +39,7 @@ class OwnAIProvider(
     }
 
     override suspend fun chatCompletion(prompt: String, systemPrompt: String?): String {
+        if (backendBaseUrl.isBlank()) return "AI backend is not configured. Set AI_BACKEND_URL and rebuild the app."
         return try {
             val jsonBody = JSONObject().apply {
                 put("prompt", prompt)
@@ -64,6 +66,7 @@ class OwnAIProvider(
     }
 
     override suspend fun translateText(text: String, targetLanguage: String): String {
+        if (backendBaseUrl.isBlank()) return "AI backend is not configured. Set AI_BACKEND_URL and rebuild the app."
         return try {
             val jsonBody = JSONObject().apply {
                 put("text", text)
@@ -82,6 +85,7 @@ class OwnAIProvider(
     }
 
     override suspend fun summarizeText(text: String): String {
+        if (backendBaseUrl.isBlank()) return "AI backend is not configured. Set AI_BACKEND_URL and rebuild the app."
         return try {
             val jsonBody = JSONObject().apply {
                 put("text", text)
