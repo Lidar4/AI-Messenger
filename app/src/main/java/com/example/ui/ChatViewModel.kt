@@ -154,6 +154,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             _authError.value = "Firebase is not configured. Add google-services.json to enable accounts and cloud messaging."
             return
         }
+        val firestore = db ?: return
         viewModelScope.launch {
             try {
                 val usernameDoc = firestore.collection("usernames").document(cleanUsername).get().await()
@@ -224,7 +225,8 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     private fun fetchUserProfile(uid: String) {
         viewModelScope.launch {
             try {
-                val doc = db?.collection("users").document(uid).get().await()
+                val firestore = db ?: return@launch
+                val doc = firestore.collection("users").document(uid).get().await()
                 if (doc.exists()) {
                     _userProfile.value = doc.toObject(User::class.java)
                 }
@@ -236,9 +238,10 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
     fun updateProfile(newDisplayName: String, newBio: String) {
         val uid = auth?.currentUser?.uid ?: return
+        val firestore = db ?: return
         viewModelScope.launch {
             try {
-                db?.collection("users").document(uid)
+                firestore.collection("users").document(uid)
                     .update(mapOf("displayName" to newDisplayName, "bio" to newBio)).await()
                 fetchUserProfile(uid)
             } catch (e: Exception) {
@@ -268,7 +271,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         }
         viewModelScope.launch {
             try {
-                val usernameDoc = db?.collection("usernames").document(query).get().await()
+                val usernameDoc = firestore.collection("usernames").document(query).get().await()
                 if (usernameDoc.exists()) {
                     val uid = usernameDoc.getString("uid")
                     if (uid != null && uid != auth?.currentUser?.uid) {
@@ -328,7 +331,8 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     private fun startConversationsListener(uid: String) {
         if (!isBackendConfigured) return
         convListener?.remove()
-        convListener = db?.collection("conversations")
+        val firestore = db ?: return
+        convListener = firestore.collection("conversations")
             .whereArrayContains("participants", uid)
             .addSnapshotListener { snapshot, e ->
                 if (e != null) {
@@ -345,7 +349,8 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     private fun startStatusListener() {
         if (!isBackendConfigured) return
         statusListener?.remove()
-        statusListener = db?.collection("statuses")
+        val firestore = db ?: return
+        statusListener = firestore.collection("statuses")
             .orderBy("timestamp", Query.Direction.DESCENDING)
             .addSnapshotListener { snapshot, e ->
                 if (e != null) return@addSnapshotListener
@@ -371,7 +376,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         )
         viewModelScope.launch {
             try {
-                db?.collection("statuses").document(statusId).set(status).await()
+                firestore.collection("statuses").document(statusId).set(status).await()
             } catch (e: Exception) {
                 Log.e(tag, "Error posting status", e)
             }
@@ -387,7 +392,8 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     private fun startMessagesListener(convId: String) {
         if (!isBackendConfigured) return
         msgListener?.remove()
-        msgListener = db?.collection("conversations").document(convId)
+        val firestore = db ?: return
+        msgListener = firestore.collection("conversations").document(convId)
             .collection("messages")
             .orderBy("timestamp", Query.Direction.ASCENDING)
             .addSnapshotListener { snapshot, e ->
