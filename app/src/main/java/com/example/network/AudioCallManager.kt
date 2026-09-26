@@ -38,7 +38,7 @@ class AudioCallManager {
     }
 
     fun acceptIncomingCall() {
-        _callState.value = CallState.Disconnected("VoIP Calls (WebRTC) not yet implemented")
+        _callState.value = CallState.Disconnected("Voice calls are not available yet")
         _callState.value = CallState.Idle
     }
 
@@ -52,9 +52,6 @@ class AudioCallManager {
 
     fun endCall() {
         _callState.value = CallState.Disconnected("Call ended")
-        scope.launch {
-            delay(1000)
-            _callState.value = CallState.Idle
-        }
+        _callState.value = CallState.Idle
     }
 }
