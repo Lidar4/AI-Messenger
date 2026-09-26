@@ -19,7 +19,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Extract project
+      - name: Extract project source
         shell: bash
         run: |
           set -euo pipefail
@@ -31,11 +31,14 @@ jobs:
           else
             src="$tmp_dir"
           fi
-          find "$src" -mindepth 1 -maxdepth 1 -exec cp -a {} . \;
+
+          # Copy the project source, but leave GitHub workflow files for
+          # the GitHub Contents API, which has explicit workflow permission.
+          rsync -a --exclude='.github/workflows/' "$src/" ./
           rm -rf "$tmp_dir"
           rm -f "ai-messenger (1).zip"
 
-      - name: Commit extracted project
+      - name: Commit extracted source
         shell: bash
         run: |
           set -euo pipefail
@@ -46,5 +49,5 @@ jobs:
             echo "No changes to commit."
             exit 0
           fi
-          git commit -m "Extract AI Messenger project from uploaded ZIP"
+          git commit -m "Extract AI Messenger source from uploaded ZIP"
           git push
