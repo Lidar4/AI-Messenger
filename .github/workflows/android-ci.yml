@@ -6,38 +6,53 @@ on:
   pull_request:
     branches: [ main, master ]
 
+permissions:
+  contents: read
+
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-    - name: Checkout Repository
-      uses: actions/checkout@v4
-    - name: Set up JDK 17
-      uses: actions/setup-java@v4
-      with:
-        java-version: '17'
-        distribution: 'temurin'
-        cache: gradle
-    - name: Grant Execute Permission to Gradlew
-      run: chmod +x gradlew
-    - name: Run Room KSP and Compile Checks
-      run: ./gradlew compileDebugSources --no-daemon
-    - name: Run Unit Tests
-      run: ./gradlew testDebugUnitTest --no-daemon
-    - name: Build Debug APK
-      run: ./gradlew assembleDebug --no-daemon
-    - name: Verify Artifact Exists
-      run: |
-        if [ ! -f app/build/outputs/apk/debug/app-debug.apk ]; then
-          echo "Debug APK build failed! File not found."
-          exit 1
-        fi
-    - name: Generate SHA-256 Checksum
-      run: sha256sum app/build/outputs/apk/debug/app-debug.apk > app/build/outputs/apk/debug/app-debug.apk.sha256
-    - name: Upload Debug APK Artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: android-debug-apk
-        path: |
-          app/build/outputs/apk/debug/app-debug.apk
-          app/build/outputs/apk/debug/app-debug.apk.sha256
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v5
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: gradle
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Verify Gradle project
+        run: |
+          test -f settings.gradle.kts
+          test -f build.gradle.kts
+          test -f app/build.gradle.kts
+          gradle --version
+
+      - name: Compile Debug Sources
+        run: gradle compileDebugSources --no-daemon
+
+      - name: Run Unit Tests
+        run: gradle testDebugUnitTest --no-daemon
+
+      - name: Build Debug APK
+        run: gradle assembleDebug --no-daemon
+
+      - name: Verify Artifact Exists
+        run: |
+          test -f app/build/outputs/apk/debug/app-debug.apk
+
+      - name: Generate SHA-256 Checksum
+        run: sha256sum app/build/outputs/apk/debug/app-debug.apk > app/build/outputs/apk/debug/app-debug.apk.sha256
+
+      - name: Upload Debug APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-debug-apk
+          path: |
+            app/build/outputs/apk/debug/app-debug.apk
+            app/build/outputs/apk/debug/app-debug.apk.sha256
