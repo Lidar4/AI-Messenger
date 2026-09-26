@@ -1,11 +1,9 @@
 package com.example.network
 
-import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 
 class AudioCallManager {
-    private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
 
     private val _callState = MutableStateFlow<CallState>(CallState.Idle)
     val callState: StateFlow<CallState> = _callState
@@ -30,13 +28,9 @@ class AudioCallManager {
     fun startOutgoingCall(peerName: String) {
         _callState.value = CallState.Outgoing(peerName)
         _callDurationSeconds.value = 0
-        // VoIP/WebRTC audio calls are not yet implemented in this release.
-        scope.launch {
-            delay(1500)
-            _callState.value = CallState.Disconnected("VoIP Calls (WebRTC) not yet implemented")
-            delay(1500)
-            _callState.value = CallState.Idle
-        }
+        // No fake connection: real WebRTC transport is not implemented yet.
+        _callState.value = CallState.Disconnected("Voice calls are not available yet")
+        _callState.value = CallState.Idle
     }
 
     fun receiveIncomingCall(peerName: String) {
@@ -45,10 +39,7 @@ class AudioCallManager {
 
     fun acceptIncomingCall() {
         _callState.value = CallState.Disconnected("VoIP Calls (WebRTC) not yet implemented")
-        scope.launch {
-            delay(1500)
-            _callState.value = CallState.Idle
-        }
+        _callState.value = CallState.Idle
     }
 
     fun toggleMute() {
