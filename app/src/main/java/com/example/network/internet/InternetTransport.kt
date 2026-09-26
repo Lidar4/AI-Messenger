@@ -24,7 +24,7 @@ interface InternetMessageApi {
     suspend fun sendMessage(
         @Header("Authorization") authToken: String,
         @Body messagePayload: MessagePayload
-    ): ResponseBody
+    ): retrofit2.Response<ResponseBody>
 }
 
 data class MessagePayload(
@@ -92,8 +92,10 @@ class InternetTransport(private val context: Context) : CommunicationTransport {
 
             // Secure authenticated request to messaging backend API
             val response = api.sendMessage("Bearer $authToken", payload)
-            val success = response.string().isNotEmpty()
-            Log.d(tag, "Internet secure messaging API transaction success: $success")
+            if (!response.isSuccessful) {
+                Log.w(tag, "Messaging backend returned HTTP ${response.code()}")
+                return@withContext false
+            }
             true
         } catch (e: Exception) {
             Log.e(tag, "Internet transport transmission failed: ${e.message}")
