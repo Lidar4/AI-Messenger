@@ -1,6 +1,6 @@
 # AI Messenger
 
-A premium, modern Android messenger featuring an integrated AI Assistant workspace, resilient offline mesh/P2P communication, and industry-standard end-to-end encrypted messaging.
+A premium, modern Android messenger featuring an integrated AI Assistant workspace, nearby LAN/P2P communication, and encrypted transport. Internet messaging and voice calls require separately configured backends; multi-hop mesh routing and VoIP are not implemented yet.
 
 ## Main Navigation Elements
 
@@ -14,8 +14,8 @@ A premium, modern Android messenger featuring an integrated AI Assistant workspa
 - **Language**: Kotlin
 - **UI Framework**: Jetpack Compose (Material Design 3)
 - **Local Database**: Room DB (with modern KSP code generation)
-- **Networking**: Retrofit + Moshi, TCP ServerSockets for Nearby P2P fallback
-- **Encryption**: AES-GCM (Zero-Plaintext transport)
+- **Networking**: Retrofit + Moshi, TCP ServerSockets with Android NSD/mDNS for Nearby LAN discovery
+- **Encryption**: AES-GCM transport encryption
 - **AI Integrations**: Provider-independent `AiProvider` abstraction (`OwnAIProvider`) for self-hosted local model runtimes.
 - **Workflows**: GitHub Actions CI for Debug APK and release configurations.
 
@@ -40,7 +40,7 @@ cd ai-backend
 pip install -r requirements.txt
 export MODEL_RUNTIME_URL="http://localhost:11434"
 export MODEL_NAME="llama3"
-export BACKEND_AUTH_TOKEN="secure_messenger_token_123"
+export BACKEND_AUTH_TOKEN="<set-your-own-backend-token>"
 uvicorn main:app --host 0.0.0.0 --port 8000
 ```
 
