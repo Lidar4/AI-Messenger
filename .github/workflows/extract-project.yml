@@ -26,14 +26,11 @@ jobs:
           test -f "ai-messenger (1).zip"
           tmp_dir="$(mktemp -d)"
           unzip -q "ai-messenger (1).zip" -d "$tmp_dir"
-
-          # Remove ZIP-only root artifact if present and copy the actual project tree.
           if [ -d "$tmp_dir/ai-messenger" ]; then
             src="$tmp_dir/ai-messenger"
           else
             src="$tmp_dir"
           fi
-
           find "$src" -mindepth 1 -maxdepth 1 -exec cp -a {} . \;
           rm -rf "$tmp_dir"
           rm -f "ai-messenger (1).zip"
